@@ -4,7 +4,7 @@
 
 ![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
-[![codecov](https://codecov.io/gh/z-d-g/md-cli/branch/main/graph/badge.svg)](https://codecov.io/gh/z-d-g/md-cli)
+[![codecov](https://codecov.io/github/z-d-g/md-cli/graph/badge.svg?token=AyGyuAvKhn)](https://codecov.io/github/z-d-g/md-cli)
 
 ## Features
 
