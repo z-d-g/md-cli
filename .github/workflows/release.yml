@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+          - goos: windows
+            goarch: arm64
+            runner: windows-latest
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Linux dependencies
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Build
+        shell: bash
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          go build -ldflags="-s -w" -o "md-cli-${GOOS}-${GOARCH}${ext}" cmd/md-cli/main.go
+
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          gh release upload "${{ github.event.release.tag_name }}" "md-cli-${GOOS}-${GOARCH}${ext}" --clobber
