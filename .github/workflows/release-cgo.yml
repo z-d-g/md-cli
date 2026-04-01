@@ -1,0 +1,80 @@
+name: Release (CGO)
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        os: [linux, macOS, windows]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build [macOS]
+        if: matrix.os == 'macOS'
+        env:
+          os: ${{ matrix.os }}
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o md-cli cmd/md-cli/main.go
+          zip -9q md-cli-$os-amd64.zip md-cli LICENSE
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -trimpath -o md-cli cmd/md-cli/main.go
+          zip -9q md-cli-$os-arm64.zip md-cli LICENSE
+          rm md-cli
+
+      - name: Build [windows]
+        if: matrix.os == 'windows'
+        env:
+          os: ${{ matrix.os }}
+        run: |
+          CGO_ENABLED=1 GOOS=$os GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o md-cli.exe cmd/md-cli/main.go
+          zip -9q md-cli-$os-amd64.zip md-cli.exe LICENSE
+          rm md-cli.exe
+
+      - name: Build [linux]
+        if: matrix.os == 'linux'
+        env:
+          os: ${{ matrix.os }}
+        run: |
+          CGO_ENABLED=1 GOOS=$os GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o md-cli cmd/md-cli/main.go
+          tar -I 'gzip -9' -cf md-cli-$os-amd64.tar.gz md-cli LICENSE
+          rm md-cli
+
+      - name: Upload [macOS]
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macOS'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            md-cli-${{ matrix.os }}-amd64.zip
+            md-cli-${{ matrix.os }}-arm64.zip
+
+      - name: Upload [windows]
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: md-cli-${{ matrix.os }}-amd64.zip
+
+      - name: Upload [linux]
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: md-cli-${{ matrix.os }}-amd64.tar.gz
