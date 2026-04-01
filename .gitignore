@@ -4,3 +4,4 @@ coverage.*
 
 **/*.md
 !README.md
+!CONTRIBUTING.md
