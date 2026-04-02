@@ -39,6 +39,9 @@ type Model struct {
 	Notification   string
 	Config         *config.Config
 	CursorStore    *cursor.PositionStore
+
+	dialogLines []string
+	dialogWidth int
 }
 
 func NewModel(filePath string, cfg *config.Config) Model {
@@ -422,36 +425,45 @@ func easeOutQuart(x float64) float64 {
 	return 1.0 - (1.0-x)*(1.0-x)*(1.0-x)*(1.0-x)
 }
 
+func (m *Model) helpDialogLines() []string {
+	if len(m.dialogLines) == 0 || m.Width != m.dialogWidth {
+		dialog := m.renderHelpDialogContent(m.Config.HelpKeyStyle, m.Config.HelpDescStyle, m.Config.HelpSectionStyle, m.Config.InfoStyle)
+		m.dialogWidth = m.Width
+		if dialog == "" {
+			m.dialogLines = nil
+		} else {
+			m.dialogLines = strings.Split(strings.TrimRight(dialog, "\n"), "\n")
+		}
+	}
+	return m.dialogLines
+}
+
 func (m Model) renderHelpOverlay(editorContent string) string {
 	if m.Editor == nil || m.Width < 30 || m.Height <= 0 {
 		return editorContent
 	}
 
-	dialog := m.renderHelpDialogContent(m.Config.HelpKeyStyle, m.Config.HelpDescStyle, m.Config.HelpSectionStyle, m.Config.InfoStyle)
-	if dialog == "" {
-		return editorContent
-	}
-
-	editorLines := strings.Split(editorContent, "\n")
-	dialogLines := strings.Split(strings.TrimRight(dialog, "\n"), "\n")
+	dialogLines := m.helpDialogLines()
 	if len(dialogLines) == 0 {
 		return editorContent
 	}
+
 	viewport := m.Height - m.reservedRows()
 
-	lines := make([]string, min(viewport, len(editorLines)))
-	copy(lines, editorLines[:len(lines)])
-
-	// Dialog slides from above viewport down into position
-	// topOffset = rows of dialog still above viewport
 	topOffset := int((1.0 - easeOutQuart(m.HelpAnimOffset)) * float64(len(dialogLines)))
+	if topOffset >= len(dialogLines) {
+		return editorContent
+	}
 
-	for i := topOffset; i < len(dialogLines); i++ {
-		row := i - topOffset
-		if row >= len(lines) {
-			break
-		}
-		lines[row] = dialogLines[i]
+	lines := make([]string, 0, viewport)
+	for i := topOffset; i < len(dialogLines) && len(lines) < viewport; i++ {
+		lines = append(lines, dialogLines[i])
+	}
+
+	startEditor := len(lines)
+	editorLines := strings.Split(editorContent, "\n")
+	for i := startEditor; i < len(editorLines) && len(lines) < viewport; i++ {
+		lines = append(lines, editorLines[i])
 	}
 
 	return strings.Join(lines, "\n")
