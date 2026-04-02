@@ -504,52 +504,19 @@ func (m Model) renderHelpDialogContent(key, desc, section, info lipgloss.Style) 
 		return kRendered + strings.Repeat(" ", max(1, pad+1)) + desc.Render(strings.ToLower(d))
 	}
 
+	var numCols int
+	switch {
+	case contentWidth >= 83:
+		numCols = 4
+	case contentWidth >= 55:
+		numCols = 2
+	default:
+		numCols = 1
+	}
+
 	var contentLines []string
 
-	if contentWidth >= 83 {
-		colW := (contentWidth - (len(groups) - 1)) / len(groups)
-
-		var headerLine strings.Builder
-		for i, g := range groups {
-			if i > 0 {
-				headerLine.WriteString(" ")
-			}
-			tag := " " + g.title + " "
-			h := section.Render("─" + tag + "─")
-			headerLine.WriteString(h)
-			headerPad := colW - lipgloss.Width(h)
-			if headerPad > 0 {
-				headerLine.WriteString(strings.Repeat(" ", headerPad))
-			}
-		}
-		contentLines = append(contentLines,
-			strings.Repeat(" ", padL)+headerLine.String()+strings.Repeat(" ", padR))
-
-		maxItems := 0
-		for _, g := range groups {
-			maxItems = max(maxItems, len(g.items))
-		}
-		for row := 0; row < maxItems; row++ {
-			var line strings.Builder
-			for ci, g := range groups {
-				if ci > 0 {
-					line.WriteString(" ")
-				}
-				if row < len(g.items) {
-					cell := pair(g.items[row][0], g.items[row][1])
-					line.WriteString(cell)
-					pad := colW - lipgloss.Width(cell)
-					if pad > 0 {
-						line.WriteString(strings.Repeat(" ", pad))
-					}
-				} else {
-					line.WriteString(strings.Repeat(" ", colW))
-				}
-			}
-			contentLines = append(contentLines,
-				strings.Repeat(" ", padL)+line.String()+strings.Repeat(" ", padR))
-		}
-	} else {
+	if numCols == 1 {
 		for _, g := range groups {
 			tag := " " + g.title + " "
 			contentLines = append(contentLines,
@@ -560,6 +527,50 @@ func (m Model) renderHelpDialogContent(key, desc, section, info lipgloss.Style) 
 			}
 			contentLines = append(contentLines,
 				strings.Repeat(" ", padL)+strings.Repeat(" ", padR))
+		}
+	} else {
+		rowGroups := chunkGroups(len(groups), numCols)
+		for _, indices := range rowGroups {
+			colW := (contentWidth - (len(indices) - 1)) / len(indices)
+
+			var headerBuf strings.Builder
+			for i, gi := range indices {
+				if i > 0 {
+					headerBuf.WriteString(" ")
+				}
+				tag := " " + groups[gi].title + " "
+				h := section.Render("─" + tag + "─")
+				headerBuf.WriteString(h)
+				if p := colW - lipgloss.Width(h); p > 0 {
+					headerBuf.WriteString(strings.Repeat(" ", p))
+				}
+			}
+			contentLines = append(contentLines,
+				strings.Repeat(" ", padL)+headerBuf.String()+strings.Repeat(" ", padR))
+
+			maxItems := 0
+			for _, gi := range indices {
+				maxItems = max(maxItems, len(groups[gi].items))
+			}
+			for row := 0; row < maxItems; row++ {
+				var lineBuf strings.Builder
+				for i, gi := range indices {
+					if i > 0 {
+						lineBuf.WriteString(" ")
+					}
+					if row < len(groups[gi].items) {
+						cell := pair(groups[gi].items[row][0], groups[gi].items[row][1])
+						lineBuf.WriteString(cell)
+						if p := colW - lipgloss.Width(cell); p > 0 {
+							lineBuf.WriteString(strings.Repeat(" ", p))
+						}
+					} else {
+						lineBuf.WriteString(strings.Repeat(" ", colW))
+					}
+				}
+				contentLines = append(contentLines,
+					strings.Repeat(" ", padL)+lineBuf.String()+strings.Repeat(" ", padR))
+			}
 		}
 	}
 
@@ -577,6 +588,24 @@ func (m Model) renderHelpDialogContent(key, desc, section, info lipgloss.Style) 
 		Render(strings.Join(contentLines, "\n"))
 
 	return dialog
+}
+
+func chunkGroups(n, cols int) [][]int {
+	rows := (n + cols - 1) / cols
+	result := make([][]int, 0, rows)
+	for r := range rows {
+		start := r * cols
+		end := start + cols
+		if end > n {
+			end = n
+		}
+		chunk := make([]int, end-start)
+		for i := start; i < end; i++ {
+			chunk[i-start] = i
+		}
+		result = append(result, chunk)
+	}
+	return result
 }
 
 func (m *Model) showTemporaryNotification(_ string) tea.Cmd {
