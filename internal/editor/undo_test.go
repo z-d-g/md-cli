@@ -144,7 +144,7 @@ func TestUndoManagerRecordClearsRedo(t *testing.T) {
 
 func TestUndoManagerLimit(t *testing.T) {
 	um := NewUndoManager(3)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		um.Record(UndoEntry{offset: i, inserted: []byte("x"), cursorAfter: i + 1})
 	}
 	if um.Len() != 3 {

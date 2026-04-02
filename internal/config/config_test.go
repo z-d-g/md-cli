@@ -67,7 +67,7 @@ func TestConfigStylesNotEmpty(t *testing.T) {
 
 	styles := []struct {
 		name  string
-		style interface{ GetForeground() interface{} }
+		style interface{ GetForeground() any }
 	}{
 		// Just verify the config is non-nil and usable
 	}

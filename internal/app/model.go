@@ -577,7 +577,7 @@ func (m Model) renderHelpDialogContent(key, desc, section, info lipgloss.Style) 
 	footerText := " esc or f1 to close "
 	dashW := max(contentWidth-lipgloss.Width(footerText), 0)
 	footerContent := info.Render(
-		strings.Repeat("─", dashW/2)+footerText+strings.Repeat("─", dashW-dashW/2),
+		strings.Repeat("─", dashW/2) + footerText + strings.Repeat("─", dashW-dashW/2),
 	)
 	contentLines = append(contentLines,
 		strings.Repeat(" ", padL)+footerContent+strings.Repeat(" ", padR))
@@ -595,10 +595,7 @@ func chunkGroups(n, cols int) [][]int {
 	result := make([][]int, 0, rows)
 	for r := range rows {
 		start := r * cols
-		end := start + cols
-		if end > n {
-			end = n
-		}
+		end := min(start+cols, n)
 		chunk := make([]int, end-start)
 		for i := start; i < end; i++ {
 			chunk[i-start] = i

@@ -39,13 +39,13 @@ type styleCache struct {
 
 // lipglossRenderer implements LineRenderer using lipgloss for rendering.
 type lipglossRenderer struct {
-	styles          *config.EditorStyles
-	styleCache      styleCache
-	lineNumberFunc  StyleFunc
-	table           tableContext
-	tableVersion    int
-	documentLines   func() []string
-	terminalWidth   int
+	styles         *config.EditorStyles
+	styleCache     styleCache
+	lineNumberFunc StyleFunc
+	table          tableContext
+	tableVersion   int
+	documentLines  func() []string
+	terminalWidth  int
 }
 
 // NewLipglossRenderer creates a LineRenderer backed by lipgloss.
@@ -98,8 +98,6 @@ func (r *lipglossRenderer) SetTerminalWidth(w int) {
 func (r *lipglossRenderer) TerminalWidth() int {
 	return r.terminalWidth
 }
-
-
 
 func (r *lipglossRenderer) RenderLineNumber(text string) string {
 	return r.lineNumberFunc(text)
