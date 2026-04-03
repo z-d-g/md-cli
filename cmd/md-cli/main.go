@@ -5,8 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"runtime"
-	"runtime/debug"
 
 	"github.com/z-d-g/md-cli/internal/app"
 	"github.com/z-d-g/md-cli/internal/config"
@@ -80,16 +78,6 @@ func readStdin() (string, bool) {
 }
 
 func printVersion() {
-	fmt.Printf("md-cli %s (commit: %s, built: %s, go: %s/%s)\n",
-		version, commit, date, runtime.Version(), runtime.GOARCH)
-
-	info, ok := debug.ReadBuildInfo()
-	if ok {
-		fmt.Printf("module: %s\n", info.Path)
-		for _, dep := range info.Deps {
-			if dep.Path == "charm.land/bubbletea/v2" || dep.Path == "charm.land/lipgloss/v2" {
-				fmt.Printf("  %s@%s\n", dep.Path, dep.Version)
-			}
-		}
-	}
+	fmt.Printf("md-cli %s (commit: %s, built: %s)\n",
+		version, commit, date)
 }
