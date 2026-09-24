@@ -25,7 +25,7 @@ internal/
 │   ├── markdown.go  HandlePrintMode, HandlePrintContent
 │   └── model.go     Model, View, Update, help dialog, notifications
 ├── config/        Theme → lipgloss styles
-│   ├── config.go    Config, EditorStyles, buildConfig, LoadConfig, LoadConfigAdaptive
+│   ├── config.go    Config, EditorStyles, buildConfig, LoadConfig
 │   └── theme.go     Theme, DefaultTheme, ToEditorStyles
 ├── constants/     NotificationType, timing
 │   ├── notifications.go  NotificationType, Message()
@@ -35,6 +35,7 @@ internal/
 ├── markdown/      Framework-agnostic parsing, zero deps
 │   ├── types.go       InlineType, InlineElement, SpanType, SyntaxSpan, LineXxx consts
 │   ├── classify.go    IsCodeFence, CodeFenceChar, IsBlockquoteLine, IsHorizontalRule, IsListLine, IsHeadingLine, IsTableLine, ClassifyLine, CountBlockquoteDepth, CountLeadingHashes
+│   ├── codetracker.go CodeFenceTracker (code-block membership + bounds, char-aware)
 │   ├── delimiter.go   FindClosingDelimiter
 │   └── inline.go      ParseInlineElements, FindSyntaxSpans, collectSpans
 ├── render/        LineRenderer interface + lipgloss impl
@@ -52,7 +53,7 @@ internal/
 │   ├── navigation.go  Navigation (rune-aware cursor movement, desiredCol)
 │   ├── selection.go   Selection (anchor/cursor, SelectAll/Word/Line)
 │   ├── undo.go        UndoManager (stack + grouping via GroupUndoEntries)
-│   ├── activeregion.go FindBlockRegion, isInCodeBlock, bounds detection
+│   ├── activeregion.go FindBlockRegion, newCodeFenceTracker, bounds detection
 │   └── *_test.go      Tests for editor, navigation, selection, undo, activeregion, rendercache
 └── utils/         ReadFile, WriteFile, IsMarkdownFile, FilterMarkdownFiles
     └── file.go
@@ -90,10 +91,10 @@ Model.View → computeFrameState → visible lines
 1. `render.RenderLine(line, inCodeBlock)` — dispatches to block detectors (`IsCodeFence`, `IsListLine`, `IsHeadingLine`, `IsTableLine`, etc.).
 2. `markdown.ParseInlineElements(line)` → `[]InlineElement`. `FindSyntaxSpans(line)` → `[]SyntaxSpan`.
 3. `LineRenderer.RenderInline(elements)` / `RenderSourceInline(elements)` — styled output.
-4. `editor.FindBlockRegion(buf, cursorRow)` — raw source for code blocks, tables, lists, headings.
+4. `editor.FindBlockRegion(buf, cursorRow, tracker)` — raw source for code blocks, tables, lists, headings.
 5. `editor.View()` — rendered vs source per line, cursor/selection overlay.
 6. Cache: `renderCache map[int]cacheEntry`, `syntaxCache map[int][]SyntaxSpan`. Invalidated via `afterEdit(row)` / `afterMultiLineEdit()`.
-7. `computeFrameState()` pre-computes `frame.codeBlockLines[]` per frame (skipped if no edits).
+7. `computeFrameState()` builds `frame.tracker *markdown.CodeFenceTracker` once per dirty frame (skipped if clean), then resolves active-region source/raw mode.
 
 ## Key Types & Interfaces
 

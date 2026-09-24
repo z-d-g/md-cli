@@ -183,11 +183,12 @@ func (r *lipglossRenderer) RenderLine(line string, isInCodeBlock bool) string {
 
 	if markdown.IsHeadingLine(line) {
 		level := markdown.CountLeadingHashes(line)
+		trimmed := strings.TrimSpace(line)
 		startIndex := level
-		if startIndex < len(line) && line[startIndex] == ' ' {
+		if startIndex < len(trimmed) && trimmed[startIndex] == ' ' {
 			startIndex++
 		}
-		content := strings.TrimSpace(line[startIndex:])
+		content := strings.TrimSpace(trimmed[startIndex:])
 
 		switch level {
 		case 1:

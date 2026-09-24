@@ -65,148 +65,45 @@ func runeToByteOffset(s string, runeIndex int) int {
 	return byteOffset
 }
 
-// FindBlockRegion determines the active region around the cursor for source-mode rendering.
-// codeBlockLines is the pre-computed frame cache (nil if unavailable).
-func FindBlockRegion(buf *GapBuffer, cursorRow int, codeBlockLines []bool) (int, int, bool) {
+func newCodeFenceTracker(buf *GapBuffer) *markdown.CodeFenceTracker {
+	lines := make([]string, buf.LineCount())
+	for i := range lines {
+		lines[i] = buf.LineAt(i)
+	}
+	return markdown.NewCodeFenceTracker(lines)
+}
+
+func FindBlockRegion(buf *GapBuffer, cursorRow int, tracker *markdown.CodeFenceTracker) (int, int, bool) {
 	if cursorRow < 0 || cursorRow >= buf.LineCount() {
 		return cursorRow, cursorRow, false
 	}
-
+	if tracker == nil {
+		tracker = newCodeFenceTracker(buf)
+	}
 	currentLine := buf.LineAt(cursorRow)
-
-	// Fast path: use cached code block state when available
-	if codeBlockLines != nil && cursorRow < len(codeBlockLines) {
-		if codeBlockLines[cursorRow] {
-			start, end := findCodeBlockBounds(buf, cursorRow)
-			return start, end, true
-		}
-		if markdown.IsCodeFence(currentLine) {
-			start, end := findCodeBlockBounds(buf, cursorRow)
-			return start, end, true
-		}
-	} else if isInCodeBlock(buf, cursorRow) {
-		start, end := findCodeBlockBounds(buf, cursorRow)
+	if tracker.IsInside(cursorRow) || markdown.IsCodeFence(currentLine) {
+		start, end := tracker.CodeBlockBounds(cursorRow)
 		return start, end, true
 	}
-
 	if strings.HasPrefix(strings.TrimSpace(currentLine), ">") {
 		start, end := findBlockquoteBounds(buf, cursorRow)
 		return start, end, true
 	}
-
 	if markdown.IsTableLine(currentLine) {
 		start, end := findTableBounds(buf, cursorRow)
 		return start, end, true
 	}
-
 	if markdown.IsListLine(currentLine) {
 		start, end := findListBounds(buf, cursorRow)
 		return start, end, true
 	}
-
 	if markdown.IsHeadingLine(currentLine) {
 		return cursorRow, cursorRow, true
 	}
-
 	if hasInlineSyntax(currentLine) {
 		return cursorRow, cursorRow, true
 	}
-
 	return cursorRow, cursorRow, false
-}
-
-func isInCodeBlock(buf *GapBuffer, row int) bool {
-	trimmed := strings.TrimSpace(buf.LineAt(row))
-
-	insideCodeBlock := false
-	fenceChar := byte(0)
-	for i := 0; i <= row && i < buf.LineCount(); i++ {
-		if markdown.IsCodeFence(buf.LineAt(i)) {
-			fc := markdown.CodeFenceChar(buf.LineAt(i))
-			if insideCodeBlock && fc == fenceChar {
-				insideCodeBlock = false
-				fenceChar = 0
-			} else if !insideCodeBlock {
-				insideCodeBlock = true
-				fenceChar = fc
-			}
-		}
-	}
-	return insideCodeBlock || markdown.IsCodeFence(trimmed)
-}
-
-func findCodeBlockBounds(buf *GapBuffer, row int) (int, int) {
-	fenceCount := 0
-	fenceChar := byte(0)
-
-	for i := 0; i <= row && i < buf.LineCount(); i++ {
-		if markdown.IsCodeFence(buf.LineAt(i)) {
-			fc := markdown.CodeFenceChar(buf.LineAt(i))
-			if fc != 0 && fenceChar != 0 && fc != fenceChar {
-				continue
-			}
-			fenceCount++
-			if fenceCount == 1 {
-				fenceChar = fc
-			}
-			if i == row {
-				if fenceCount%2 == 1 {
-					return findMatchingCodeFence(buf, row, fenceChar, true)
-				} else {
-					return findMatchingCodeFence(buf, row, fenceChar, false)
-				}
-			}
-		}
-	}
-
-	startFenceChar := byte(0)
-	start := row
-	for start >= 0 && !markdown.IsCodeFence(buf.LineAt(start)) {
-		start--
-	}
-	if start < 0 || !markdown.IsCodeFence(buf.LineAt(start)) {
-		return row, row
-	}
-	startFenceChar = markdown.CodeFenceChar(buf.LineAt(start))
-
-	end := row
-	for end < buf.LineCount() && !markdown.IsCodeFence(buf.LineAt(end)) {
-		end++
-	}
-	if end >= buf.LineCount() || markdown.CodeFenceChar(buf.LineAt(end)) != startFenceChar {
-		return start, buf.LineCount() - 1
-	}
-
-	return start, end
-}
-
-func findMatchingCodeFence(buf *GapBuffer, fenceRow int, fenceChar byte, isOpening bool) (int, int) {
-	if isOpening {
-		start := fenceRow
-		end := fenceRow + 1
-		for end < buf.LineCount() {
-			if markdown.IsCodeFence(buf.LineAt(end)) && markdown.CodeFenceChar(buf.LineAt(end)) == fenceChar {
-				break
-			}
-			end++
-		}
-		if end >= buf.LineCount() {
-			end = buf.LineCount() - 1
-		}
-		return start, end
-	}
-
-	start := fenceRow - 1
-	for start >= 0 {
-		if markdown.IsCodeFence(buf.LineAt(start)) && markdown.CodeFenceChar(buf.LineAt(start)) == fenceChar {
-			break
-		}
-		start--
-	}
-	if start < 0 {
-		start = 0
-	}
-	return start, fenceRow
 }
 
 func findBlockquoteBounds(buf *GapBuffer, row int) (int, int) {

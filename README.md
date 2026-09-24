@@ -1,33 +1,10 @@
 # md-cli
 
-> Terminal markdown editor with live rendering. Fast, keyboard-first, adaptive themes.
+> Terminal markdown editor with live rendering. Fast, keyboard-first.
 
 ![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 [![codecov](https://codecov.io/github/z-d-g/md-cli/graph/badge.svg?token=AyGyuAvKhn)](https://codecov.io/github/z-d-g/md-cli)
-
-
-
-## What
-
-`md-cli` renders markdown in your terminal as you type — headings, bold, italic, code blocks, tables, links, images. Edit with full cursor movement, selection, undo/redo. Then save and quit.
-
-```bash
-md-cli file.md              # open in editor
-md-cli -p file.md           # render to stdout
-cat file.md | md-cli -p     # pipe from stdin
-```
-
-## Why
-
-| | md-cli | glow | helix | bat |
-|---|---|---|---|---|
-| Live editing | ✅ | ❌ | ✅ | ❌ |
-| Rendered view | ✅ | ✅ | ❌ | ✅ |
-| Zero config | ✅ | ✅ | ❌ | ✅ |
-| Single binary | ✅ | ✅ | ❌ | ✅ |
-| Adaptive light/dark | ✅ | ❌ | ❌ | ❌ |
-| Persistent cursor | ✅ | ❌ | ✅ | ❌ |
 
 ## Install
 
@@ -45,13 +22,18 @@ make install  # → ~/.local/bin/md-cli
 
 ## Usage
 
+```bash
+md-cli file.md              # open in editor
+md-cli -p file.md           # render to stdout
+cat file.md | md-cli -p     # pipe from stdin
+```
+
 ## Features
 
 - **Live rendering** — headings, bold, italic, code, links, tables, lists, images
-- **Syntax-aware cursor** — jumps between rendered and raw source in code blocks, tables, lists
+- **Syntax-aware cursor** — switch between rendered output and raw markdown source in code blocks, tables, lists, and headings
 - **Full editing** — selection, copy/cut/paste, undo/redo, word and line operations
 - **Persistent cursor** — restores position per file across sessions
-- **Adaptive theming** — respects terminal light/dark background automatically
 - **Print mode** — render markdown to stdout without the editor
 
 ### Keybindings
@@ -72,3 +54,4 @@ Full reference: press `F1` in the editor.
 ## License
 
 [MIT](LICENSE)
+

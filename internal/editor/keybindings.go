@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/z-d-g/md-cli/internal/constants"
+	"github.com/z-d-g/md-cli/internal/markdown"
 
 	nativeclipboard "github.com/aymanbagabas/go-nativeclipboard"
 
@@ -619,66 +620,58 @@ func (kb *KeyBindings) handleCut() tea.Cmd {
 }
 
 func (kb *KeyBindings) handlePaste() tea.Cmd {
-	currentCursor := kb.editor.nav.Cursor()
+	clip, err := nativeclipboard.Text.Read()
+	if err != nil || clip == nil {
+		return nil
+	}
+	return kb.pasteContent(clip)
+}
 
-	// Get from clipboard
-	pasteContent, err := nativeclipboard.Text.Read()
-	if err != nil || pasteContent == nil {
-		pasteContent = []byte("")
+func (kb *KeyBindings) HandlePaste(content string) tea.Cmd {
+	return kb.pasteContent([]byte(content))
+}
+
+func (kb *KeyBindings) pasteContent(content []byte) tea.Cmd {
+	if len(content) == 0 {
+		return nil
 	}
 
+	currentCursor := kb.editor.nav.Cursor()
+
 	if kb.editor.selection.IsActive() {
-		// Replace selection with pasted content
 		selected := kb.editor.selection.GetSelectedText(kb.editor.buf)
-		if selected != nil {
+		if len(selected) > 0 {
 			start := kb.editor.selection.Start()
 			end := kb.editor.selection.End()
 
 			kb.recordUndo(UndoEntry{
 				offset:       start,
 				deleted:      selected,
-				inserted:     pasteContent,
+				inserted:     content,
 				cursorBefore: currentCursor,
-				cursorAfter:  start + len(pasteContent),
+				cursorAfter:  start + len(content),
 			})
 
 			kb.editor.buf.Delete(start, end-start)
-			kb.editor.buf.Insert(start, pasteContent)
-			kb.editor.nav.SetCursor(start + len(pasteContent))
-			kb.editor.selection.Clear()
-
-			// Invalidate all cache entries since line numbers may have shifted
+			kb.editor.buf.Insert(start, content)
+			kb.editor.nav.SetCursor(start + len(content))
 			kb.editor.afterMultiLineEdit()
-
-			kb.endTypingGroup()
-
-			if len(pasteContent) > 0 {
-				return kb.showNotification(constants.PastedFromClipboard)
-			}
-			return nil
+			return kb.showNotification(constants.PastedFromClipboard)
 		}
+		kb.editor.selection.Clear()
 	}
 
-	// No selection - paste at cursor position
 	kb.recordUndo(UndoEntry{
 		offset:       currentCursor,
-		inserted:     pasteContent,
+		inserted:     content,
 		cursorBefore: currentCursor,
-		cursorAfter:  currentCursor + len(pasteContent),
+		cursorAfter:  currentCursor + len(content),
 	})
 
-	kb.editor.buf.Insert(currentCursor, pasteContent)
-	kb.editor.nav.SetCursor(currentCursor + len(pasteContent))
-
-	// Invalidate all cache entries since line numbers may have shifted
+	kb.editor.buf.Insert(currentCursor, content)
+	kb.editor.nav.SetCursor(currentCursor + len(content))
 	kb.editor.afterMultiLineEdit()
-
-	kb.endTypingGroup()
-
-	if len(pasteContent) > 0 {
-		return kb.showNotification(constants.PastedFromClipboard)
-	}
-	return nil
+	return kb.showNotification(constants.PastedFromClipboard)
 }
 
 func (kb *KeyBindings) handleSelectAll() tea.Cmd {
@@ -762,14 +755,13 @@ func (kb *KeyBindings) endTypingGroup() {
 	}
 }
 
-// detectCodeBlockAtCursor detects if the cursor is inside a code block and returns its content
 func (kb *KeyBindings) detectCodeBlockAtCursor() []byte {
 	currentRow, _ := kb.editor.buf.CursorToRowCol(kb.editor.nav.Cursor())
-	if !isInCodeBlock(kb.editor.buf, currentRow) {
+	tracker := newCodeFenceTracker(kb.editor.buf)
+	if !tracker.IsInside(currentRow) && !markdown.IsCodeFence(kb.editor.buf.LineAt(currentRow)) {
 		return nil
 	}
-	start, end := findCodeBlockBounds(kb.editor.buf, currentRow)
-	// Extract content between fences (excluding fence lines)
+	start, end := tracker.CodeBlockBounds(currentRow)
 	var lines []string
 	for row := start + 1; row < end; row++ {
 		lines = append(lines, kb.editor.buf.LineAt(row))

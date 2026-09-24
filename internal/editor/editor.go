@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 type Editor struct {
@@ -42,8 +43,8 @@ type Editor struct {
 
 	// Frame state for caching per-frame computations
 	frame struct {
-		codeBlockLines []bool
-		dirty          bool // set on edit, cleared after computeFrameState
+		tracker *markdown.CodeFenceTracker
+		dirty   bool
 	}
 }
 
@@ -96,39 +97,16 @@ func (e *Editor) Init() tea.Cmd {
 	return nil
 }
 
-// computeFrameState precomputes frame-level state used multiple times in View().
-// Skips recomputation if no edits have occurred since last call.
 func (e *Editor) computeFrameState() {
 	lineCount := e.buf.LineCount()
-	if !e.frame.dirty && e.frame.codeBlockLines != nil && len(e.frame.codeBlockLines) == lineCount {
+	if !e.frame.dirty && e.frame.tracker != nil && len(e.frame.tracker.CodeBlockLines()) == lineCount {
 		return
 	}
-
-	if e.frame.codeBlockLines == nil || len(e.frame.codeBlockLines) != lineCount {
-		e.frame.codeBlockLines = make([]bool, lineCount)
+	lines := make([]string, lineCount)
+	for i := 0; i < lineCount; i++ {
+		lines[i] = e.buf.LineAt(i)
 	}
-
-	inside := false
-	fenceChar := byte(0)
-	for i := range lineCount {
-		line := e.buf.LineAt(i)
-		trimmed := strings.TrimSpace(line)
-		if markdown.IsCodeFence(trimmed) {
-			e.frame.codeBlockLines[i] = false
-			if inside {
-				// Only close if fence char matches the opening
-				if markdown.CodeFenceChar(trimmed) == fenceChar {
-					inside = false
-					fenceChar = 0
-				}
-			} else {
-				inside = true
-				fenceChar = markdown.CodeFenceChar(trimmed)
-			}
-		} else {
-			e.frame.codeBlockLines[i] = inside
-		}
-	}
+	e.frame.tracker = markdown.NewCodeFenceTracker(lines)
 	e.frame.dirty = false
 }
 
@@ -157,6 +135,10 @@ func (e *Editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return e, nil
+
+	case tea.PasteMsg:
+		cmd := e.keyBindings.HandlePaste(msg.Content)
+		return e, cmd
 	}
 
 	return e, nil
@@ -242,7 +224,7 @@ func (e *Editor) View() tea.View {
 
 // getCachedLine returns the rendered line from cache or re-renders.
 func (e *Editor) getCachedLine(lineNum int, rawLine string) string {
-	isInCodeBlock := e.frame.codeBlockLines[lineNum]
+	isInCodeBlock := e.frame.tracker.IsInside(lineNum)
 	tableVersion := e.renderer.TableVersion()
 
 	if entry, exists := e.renderCache[lineNum]; exists {
@@ -302,12 +284,12 @@ func (e *Editor) visibleLines() []string {
 // getActiveRegion determines which lines should be shown as raw markdown source.
 func (e *Editor) getActiveRegion() (int, int, bool) {
 	cursorRow, _ := e.buf.CursorToRowCol(e.nav.Cursor())
-	return FindBlockRegion(e.buf, cursorRow, e.frame.codeBlockLines)
+	return FindBlockRegion(e.buf, cursorRow, e.frame.tracker)
 }
 
 // stylizeSourceLine applies styling to a line showing raw markdown syntax.
 func (e *Editor) stylizeSourceLine(line string, lineNum int) string {
-	lineType := markdown.ClassifyLine(line, e.frame.codeBlockLines[lineNum])
+	lineType := markdown.ClassifyLine(line, e.frame.tracker.IsInside(lineNum))
 	if lineType == markdown.LineNormal || lineType == markdown.LineBlockQuote {
 		elements := render.ParseInlineElements(line)
 		return e.renderer.RenderSourceInline(elements, lipgloss.Style{})
@@ -345,7 +327,6 @@ func (e *Editor) renderActiveLine(b *strings.Builder, rawLine string, lineNum in
 	}
 }
 
-// renderWithSelection renders a line with selection highlighting.
 func (e *Editor) renderWithSelection(b *strings.Builder, rawLine, styledLine string, lineNum int, cursorCol int, isCursorLine bool) {
 	if !e.selection.IsActive() {
 		if isCursorLine {
@@ -381,70 +362,117 @@ func (e *Editor) renderWithSelection(b *strings.Builder, rawLine, styledLine str
 		lineSelEnd = selectionEndCol
 	}
 
-	writeStyledRunes(b, styledLine, lineSelStart, lineSelEnd, cursorCol, isCursorLine, e.renderCursorChar, e.renderSelectionChar)
+	cursorDisp := displayOffset(rawLine, cursorCol)
+	selStartDisp := displayOffset(rawLine, lineSelStart)
+	selEndDisp := displayOffset(rawLine, lineSelEnd)
+	writeStyledRunes(b, styledLine, selStartDisp, selEndDisp, cursorDisp, isCursorLine, e.renderCursorChar, e.renderSelectionChar)
 }
 
-// renderWithCursor renders a line with cursor highlighting.
 func (e *Editor) renderWithCursor(b *strings.Builder, rawLine, styledLine string, cursorCol int) {
-	if cursorCol >= utf8.RuneCountInString(rawLine) {
+	cursorDisp := displayOffset(rawLine, cursorCol)
+	lineWidth := displayWidth(rawLine)
+	if cursorDisp >= lineWidth {
 		b.WriteString(styledLine)
 		b.WriteString(e.renderCursorChar(" "))
 		return
 	}
 
-	writeStyledRunes(b, styledLine, -1, -1, cursorCol, true, e.renderCursorChar, e.renderSelectionChar)
+	writeStyledRunes(b, styledLine, -1, -1, cursorDisp, true, e.renderCursorChar, e.renderSelectionChar)
 }
 
-// ansiCodeWidth skips an ANSI escape sequence starting at i and returns the index after it.
-// Returns i unchanged if no escape sequence is found.
-func ansiCodeWidth(s []rune, i int) int {
-	if i >= len(s) || s[i] != '\x1b' {
+func skipEscape(s string, i int) int {
+	i++
+	if i >= len(s) {
 		return i
 	}
-	i++
-	if i >= len(s) || s[i] != '[' {
-		return i
-	}
-	i++
-	for i < len(s) {
-		c := s[i]
+	switch s[i] {
+	case '[':
 		i++
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
-			return i
+		for i < len(s) {
+			c := s[i]
+			i++
+			if c >= 0x40 && c <= 0x7e {
+				return i
+			}
+		}
+	case ']', 'P', 'X', '^', '_':
+		for i < len(s) {
+			if s[i] == '\x07' {
+				return i + 1
+			}
+			if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '\\' {
+				return i + 2
+			}
+			i++
+		}
+	case '(', ')', '#', '"':
+		if i < len(s) {
+			i++
 		}
 	}
 	return i
 }
 
-// writeStyledRunes walks styledLine runes, skipping ANSI escape sequences, and writes
-// each display-visible rune through either renderCursor, renderSelection, or plain.
-func writeStyledRunes(b *strings.Builder, styledLine string, selStart, selEnd, cursorCol int, isCursorLine bool, renderCursor, renderSelection func(string) string) {
-	runes := []rune(styledLine)
-	pos := 0
-	for i := 0; i < len(runes); {
-		if runes[i] == '\x1b' {
-			i = ansiCodeWidth(runes, i)
+func displayOffset(line string, runeCol int) int {
+	var n, col int
+	for col < runeCol {
+		r, sz := utf8.DecodeRuneInString(line[n:])
+		if r == utf8.RuneError {
+			break
+		}
+		n += sz
+		col++
+	}
+	return runewidth.StringWidth(line[:n])
+}
+
+func displayWidth(line string) int {
+	n := 0
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if r == utf8.RuneError {
+			break
+		}
+		n += runewidth.RuneWidth(r)
+		i += size
+	}
+	return n
+}
+
+func writeStyledRunes(b *strings.Builder, styledLine string, selStart, selEnd, cursorDisp int, isCursorLine bool, renderCursor, renderSelection func(string) string) {
+	var displayCol int
+	for i := 0; i < len(styledLine); {
+		if styledLine[i] == '\x1b' {
+			next := skipEscape(styledLine, i)
+			b.WriteString(styledLine[i:next])
+			i = next
 			continue
 		}
 
-		isCursorChar := isCursorLine && pos == cursorCol
-		isSelected := selStart >= 0 && selEnd >= 0 && pos >= selStart && pos < selEnd
+		r, size := utf8.DecodeRuneInString(styledLine[i:])
+		if r == utf8.RuneError {
+			i++
+			continue
+		}
+		w := runewidth.RuneWidth(r)
 
-		ch := string(runes[i])
+		isCursorChar := isCursorLine && displayCol == cursorDisp
+		isSelected := selStart >= 0 && selEnd >= 0 && displayCol >= selStart && displayCol < selEnd
+
 		switch {
 		case isCursorChar:
-			b.WriteString(renderCursor(ch))
+			b.WriteString(renderCursor(styledLine[i : i+size]))
 		case isSelected:
-			b.WriteString(renderSelection(ch))
+			b.WriteString(renderSelection(styledLine[i : i+size]))
 		default:
-			b.WriteString(ch)
+			b.WriteString(styledLine[i : i+size])
 		}
 
-		pos++
-		i++
+		displayCol += w
+		i += size
 	}
 
-	if isCursorLine && pos <= cursorCol {
+	if isCursorLine && displayCol <= cursorDisp {
 		b.WriteString(renderCursor(" "))
 	}
 }
@@ -477,21 +505,26 @@ func (e *Editor) SetValue(content string) {
 	e.syntaxCache = make(map[int][]SyntaxSpan)
 	e.undo.Clear()
 	e.selection.Clear()
-	e.dirty = true
+	e.frame.tracker = nil
+	e.markDirty()
 }
 
-// afterEdit handles cache invalidation after single-line edits.
-func (e *Editor) afterEdit(affectedRow int) {
+// markDirty flags the buffer as modified and forces recomputation of the
+// per-frame code-block cache on the next View. Any content change invalidates
+// both, so callers must use this instead of touching the fields directly.
+func (e *Editor) markDirty() {
 	e.dirty = true
 	e.frame.dirty = true
+}
+
+func (e *Editor) afterEdit(affectedRow int) {
+	e.markDirty()
 	delete(e.renderCache, affectedRow)
 	delete(e.syntaxCache, affectedRow)
 }
 
-// afterMultiLineEdit handles cache invalidation after multi-line edits.
 func (e *Editor) afterMultiLineEdit() {
-	e.dirty = true
-	e.frame.dirty = true
+	e.markDirty()
 	e.renderCache = make(map[int]cacheEntry)
 	e.syntaxCache = make(map[int][]SyntaxSpan)
 }

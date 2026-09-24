@@ -25,11 +25,17 @@ func TestRenderLineHeading(t *testing.T) {
 		{"#### H4"},
 		{"##### H5"},
 		{"###### H6"},
+		{"  # one-space-indented"},
+		{"  ## two-space-indented"},
+		{"   ### three-space-indented"},
 	}
 	for _, tt := range tests {
 		result := r.RenderLine(tt.line, false)
 		if result == "" {
 			t.Errorf("RenderLine(%q) returned empty", tt.line)
+		}
+		if strings.Contains(result, "# ") {
+			t.Errorf("RenderLine(%q) leaked heading markers: %q", tt.line, result)
 		}
 	}
 }

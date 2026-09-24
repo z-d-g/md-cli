@@ -85,7 +85,7 @@ func NewModel(filePath string, cfg *config.Config) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.RequestBackgroundColor
+	return nil
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -166,8 +166,6 @@ func (m Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.applyWindowSize(msg)
 		return m, nil
-	case tea.BackgroundColorMsg:
-		return m.handleBackgroundColor(msg)
 	case clearNotificationMsg:
 		m.clearNotification()
 		return m, nil
@@ -225,11 +223,6 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleEditorNotification(msg editor.NotificationMsg) (tea.Model, tea.Cmd) {
 	m.Notification = string(msg.MessageType)
 	return m, m.showTemporaryNotification(m.Notification)
-}
-
-func (m Model) handleBackgroundColor(_ tea.BackgroundColorMsg) (tea.Model, tea.Cmd) {
-	m.Config = config.LoadConfig()
-	return m, nil
 }
 
 func (m *Model) saveFile() error {

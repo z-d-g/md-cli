@@ -317,12 +317,7 @@ func (g *GapBuffer) decodeLastRuneAt(pos int) (rune, int) {
 	if pos <= g.gapStart {
 		return utf8.DecodeLastRune(g.data[:pos])
 	}
-	gapSize := g.gapSize()
-	if pos-gapSize >= g.gapStart {
-		return utf8.DecodeLastRune(g.data[g.gapEnd : pos-gapSize+g.gapEnd])
-	}
-	// pos straddles the gap: read from before gap start
-	return utf8.DecodeLastRune(g.data[:g.gapStart])
+	return utf8.DecodeLastRune(g.data[g.gapEnd : pos+g.gapSize()])
 }
 
 // runeCountAt returns the number of runes in the segment [start, end).
