@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="640" viewBox="0 0 800 640" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <title>md-cli — live markdown rendering, cursor-aware</title>
+
+  <rect id="page" width="800" height="640" fill="#08050F"/>
+
+  <g id="window">
+    <rect x="40" y="40" width="720" height="552" fill="#0F0A1A" stroke="#2E2150" stroke-width="1"/>
+
+    <g id="titlebar">
+      <rect x="40" y="40" width="720" height="34" fill="#6D28D9"/>
+      <text x="56" y="62" font-size="12" font-weight="700" fill="#FFFFFF">md-cli<tspan font-weight="400" fill="#E9DEFF"> [f1:?]</tspan></text>
+      <text x="170" y="62" font-size="11" fill="#E9DEFF">readme.md</text>
+      <line x1="252" y1="57" x2="640" y2="57" stroke="#8B5CF6" stroke-width="1" stroke-dasharray="2 4"/>
+      <circle cx="700" cy="57" r="4" fill="#6EE7B7"/>
+      <text x="712" y="61" font-size="10" fill="#E9DEFF">saved</text>
+    </g>
+
+    <rect id="active-line" x="40" y="105" width="720" height="20" fill="#1B1033"/>
+    <rect id="active-marker" x="40" y="105" width="3" height="20" fill="#8B5CF6"/>
+
+    <g id="gutter" font-size="10" fill="#9A8CC0" text-anchor="end">
+      <text x="64" y="88">1</text>
+      <text x="64" y="104">2</text>
+      <text x="64" y="120" fill="#C4B5FD">3</text>
+      <text x="64" y="136">4</text>
+      <text x="64" y="152">5</text>
+      <text x="64" y="168">6</text>
+      <text x="64" y="184">7</text>
+      <text x="64" y="200">8</text>
+      <text x="64" y="216">9</text>
+      <text x="64" y="232">10</text>
+      <text x="64" y="248">11</text>
+      <text x="64" y="264">12</text>
+      <text x="64" y="280">13</text>
+      <text x="64" y="296">14</text>
+      <text x="64" y="312">15</text>
+      <text x="64" y="328">16</text>
+      <text x="64" y="344">17</text>
+      <text x="64" y="360">18</text>
+      <text x="64" y="376">19</text>
+      <text x="64" y="392">20</text>
+      <text x="64" y="408">21</text>
+      <text x="64" y="424">22</text>
+      <text x="64" y="440">23</text>
+      <text x="64" y="456">24</text>
+      <text x="64" y="472">25</text>
+      <text x="64" y="488">26</text>
+      <text x="64" y="504">27</text>
+      <text x="64" y="520">28</text>
+      <text x="64" y="536">29</text>
+      <text x="64" y="552">30</text>
+      <text x="64" y="568">31</text>
+    </g>
+
+    <g id="document" font-size="13" fill="#E8E2F7">
+      <text id="h1" x="76" y="88" font-weight="700" fill="#E07BE0">md-cli</text>
+
+      <rect id="cursor" x="114" y="109" width="9" height="15" fill="#C4B5FD"/>
+      <text id="line-3-source" x="76" y="120">Some <tspan fill="#0F0A1A">*</tspan>*<tspan font-weight="700">bold</tspan>** and *<tspan font-style="italic">italic</tspan>* and `<tspan fill="#C9B8FF">code</tspan>` and ~~<tspan text-decoration="line-through">gone</tspan>~~</text>
+
+      <text id="h2" x="76" y="152" font-weight="700" fill="#B18CFF">Live render</text>
+
+      <text id="bullet-bold" x="76" y="184"><tspan fill="#A78BFA">• </tspan><tspan font-weight="700">bold</tspan> item</text>
+      <text id="bullet-italic" x="76" y="200"><tspan fill="#A78BFA">• </tspan><tspan font-style="italic">italic</tspan> item</text>
+      <text id="task-done" x="76" y="216"><tspan fill="#A78BFA">✓ </tspan>grouped undo</text>
+      <text id="task-open" x="76" y="232"><tspan fill="#A78BFA">☐ </tspan>remembers place</text>
+      <text id="ordered" x="76" y="248"><tspan fill="#A78BFA">1. </tspan>one</text>
+      <text id="ordered-2" x="76" y="264"><tspan fill="#A78BFA">2. </tspan>two</text>
+
+      <text id="quote" x="76" y="296"><tspan fill="#8B5CF6">│ </tspan><tspan fill="#C9BCE0">a blockquote line</tspan></text>
+
+      <g id="table" fill="#E6DFF7">
+        <text id="table-head" x="76" y="328"><tspan fill="#6D5AA0">│ </tspan><tspan font-weight="700" fill="#C4B5FD">Name   </tspan><tspan fill="#6D5AA0">│ </tspan><tspan font-weight="700" fill="#C4B5FD">Qty </tspan><tspan fill="#6D5AA0">│</tspan></text>
+        <text id="table-rule" x="76" y="344" fill="#6D5AA0">├────────┼─────┤</text>
+        <text id="table-row" x="76" y="360"><tspan fill="#6D5AA0">│ </tspan>Widget<tspan fill="#6D5AA0"> │ </tspan>3   <tspan fill="#6D5AA0">│</tspan></text>
+      </g>
+
+      <line id="code-fence-open" x1="76" y1="388" x2="744" y2="388" stroke="#8B7BAE" stroke-width="2" stroke-dasharray="4 4"/>
+      <rect id="code-bg" x="74" y="398" width="152" height="16" fill="#1A1130"/>
+      <text id="code-line" x="76" y="408">fmt.Println("hello")</text>
+      <line id="code-fence-close" x1="76" y1="420" x2="744" y2="420" stroke="#8B7BAE" stroke-width="2" stroke-dasharray="4 4"/>
+
+      <line id="rule" x1="76" y1="452" x2="744" y2="452" stroke="#6D5AA0" stroke-width="2"/>
+
+      <text id="link" x="76" y="472" fill="#67E8F9" text-decoration="underline">md-cli</text>
+      <text id="image" x="76" y="488" font-style="italic" fill="#C084FC">⊞ diagram</text>
+
+      <text id="h3" x="76" y="520" font-weight="700" fill="#8FC7C7">Heading 3</text>
+      <text id="h4" x="76" y="536" font-weight="700" fill="#6FC7C7">Heading 4</text>
+      <text id="h5" x="76" y="552" font-weight="700" fill="#7FA8D8">Heading 5</text>
+      <text id="h6" x="76" y="568" font-weight="700" fill="#A99CC4">Heading 6</text>
+    </g>
+  </g>
+
+  <g id="caption">
+    <text x="40" y="618" font-size="12" fill="#A395C0">Move the cursor — the line becomes markdown source.</text>
+    <text x="760" y="618" font-size="10" font-weight="700" letter-spacing="2" text-anchor="end" fill="#9A8CC0">FIG. 01</text>
+  </g>
+</svg>

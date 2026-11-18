@@ -2,6 +2,8 @@ package editor
 
 import (
 	"testing"
+
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 )
 
 func TestFindSyntaxSpans(t *testing.T) {
@@ -120,7 +122,6 @@ func TestFindBlockRegion(t *testing.T) {
 	t.Run("code block", func(t *testing.T) {
 		// Create test buffer with code fence
 		content := "Line 1\n```\ncode block\n```\nLine 5"
-		buf := NewGapBuffer([]byte(content))
 
 		tests := []struct {
 			name       string
@@ -168,7 +169,7 @@ func TestFindBlockRegion(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				gotStart, gotEnd, gotActive := FindBlockRegion(buf, tt.cursorRow, nil)
+				gotStart, gotEnd, gotActive := FindBlockRegion(markdown.NewDoc(content), tt.cursorRow)
 				if gotStart != tt.wantStart || gotEnd != tt.wantEnd || gotActive != tt.wantActive {
 					t.Errorf("FindBlockRegion() = (%d, %d, %v), want (%d, %d, %v)",
 						gotStart, gotEnd, gotActive, tt.wantStart, tt.wantEnd, tt.wantActive)
@@ -178,8 +179,7 @@ func TestFindBlockRegion(t *testing.T) {
 	})
 
 	t.Run("lists", func(t *testing.T) {
-		content := "Regular text\n- item 1\n- item 2\n  - subitem\n- item 3\nMore text"
-		buf := NewGapBuffer([]byte(content))
+		content := "Regular text\n- item 1\n- item 2\n  - subitem\n- item 3\n\nMore text"
 
 		tests := []struct {
 			name       string
@@ -225,16 +225,16 @@ func TestFindBlockRegion(t *testing.T) {
 			},
 			{
 				name:       "after list",
-				cursorRow:  5,
-				wantStart:  5,
-				wantEnd:    5,
+				cursorRow:  6,
+				wantStart:  6,
+				wantEnd:    6,
 				wantActive: false,
 			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				gotStart, gotEnd, gotActive := FindBlockRegion(buf, tt.cursorRow, nil)
+				gotStart, gotEnd, gotActive := FindBlockRegion(markdown.NewDoc(content), tt.cursorRow)
 				if gotStart != tt.wantStart || gotEnd != tt.wantEnd || gotActive != tt.wantActive {
 					t.Errorf("FindBlockRegion() = (%d, %d, %v), want (%d, %d, %v)",
 						gotStart, gotEnd, gotActive, tt.wantStart, tt.wantEnd, tt.wantActive)
@@ -245,7 +245,6 @@ func TestFindBlockRegion(t *testing.T) {
 
 	t.Run("headings", func(t *testing.T) {
 		content := "Regular text\n# Heading 1\n## Heading 2\nMore text"
-		buf := NewGapBuffer([]byte(content))
 
 		tests := []struct {
 			name       string
@@ -286,7 +285,7 @@ func TestFindBlockRegion(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				gotStart, gotEnd, gotActive := FindBlockRegion(buf, tt.cursorRow, nil)
+				gotStart, gotEnd, gotActive := FindBlockRegion(markdown.NewDoc(content), tt.cursorRow)
 				if gotStart != tt.wantStart || gotEnd != tt.wantEnd || gotActive != tt.wantActive {
 					t.Errorf("FindBlockRegion() = (%d, %d, %v), want (%d, %d, %v)",
 						gotStart, gotEnd, gotActive, tt.wantStart, tt.wantEnd, tt.wantActive)
@@ -297,7 +296,6 @@ func TestFindBlockRegion(t *testing.T) {
 
 	t.Run("inline syntax paragraph", func(t *testing.T) {
 		content := "First paragraph\nThis has **bold** text\nThird paragraph"
-		buf := NewGapBuffer([]byte(content))
 
 		tests := []struct {
 			name       string
@@ -331,7 +329,7 @@ func TestFindBlockRegion(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				gotStart, gotEnd, gotActive := FindBlockRegion(buf, tt.cursorRow, nil)
+				gotStart, gotEnd, gotActive := FindBlockRegion(markdown.NewDoc(content), tt.cursorRow)
 				if gotStart != tt.wantStart || gotEnd != tt.wantEnd || gotActive != tt.wantActive {
 					t.Errorf("FindBlockRegion() = (%d, %d, %v), want (%d, %d, %v)",
 						gotStart, gotEnd, gotActive, tt.wantStart, tt.wantEnd, tt.wantActive)

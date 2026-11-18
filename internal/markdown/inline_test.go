@@ -9,7 +9,7 @@ func TestParseInlineElements(t *testing.T) {
 		wantLen  int
 		wantType InlineType
 	}{
-		{"plain text", "hello", 5, InlineText},
+		{"plain text", "hello", 1, InlineText},
 		{"bold", "**bold**", 1, InlineBold},
 		{"italic", "*italic*", 1, InlineItalic},
 		{"bold italic", "***both***", 1, InlineBoldItalic},
@@ -19,7 +19,7 @@ func TestParseInlineElements(t *testing.T) {
 		{"strikethrough", "~~strike~~", 1, InlineStrikethrough},
 		{"underline", "++under++", 1, InlineUnderline},
 		{"underscore bold", "__bold__", 1, InlineBold},
-		{"mixed", "a **b** c", 5, InlineText},
+		{"mixed", "a **b** c", 3, InlineText},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

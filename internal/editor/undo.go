@@ -1,187 +1,166 @@
 package editor
 
-// UndoEntry represents a single undoable operation
-// It stores the minimal information needed to reverse an edit
-// and restore the cursor position
-// All positions are byte offsets in the gap buffer
-// For insertions: deleted is empty, inserted contains the inserted text
-// For deletions: deleted contains the deleted text, inserted is empty
-// For replacements: both deleted and inserted contain text
-// Cursor positions are stored to restore exact cursor location after undo/redo
+// UndoEntry is a single undoable operation. Byte offsets index the gap buffer.
+// Insertions set inserted and leave deleted empty; deletions do the reverse.
+// cursorBefore/cursorAfter restore the caret on undo and redo.
 type UndoEntry struct {
-	offset       int    // byte offset where the edit occurred
-	deleted      []byte // text that was deleted (empty for pure insert)
-	inserted     []byte // text that was inserted (empty for pure delete)
-	cursorBefore int    // cursor position before the edit
-	cursorAfter  int    // cursor position after the edit
+	offset       int
+	deleted      []byte
+	inserted     []byte
+	cursorBefore int
+	cursorAfter  int
 }
 
-// UndoManager manages undo and redo stacks
-// It limits the stack size to prevent memory bloat
-// All operations are recorded as UndoEntry instances
+// UndoManager stores undo/redo stacks in fixed-size ring buffers, so memory
+// stays bounded and no backing array leaks when the oldest entry is dropped.
 type UndoManager struct {
-	undoStack []UndoEntry // stack of operations that can be undone
-	redoStack []UndoEntry // stack of operations that can be redone
-	limit     int         // maximum number of entries to keep
+	undo ring
+	redo ring
 }
 
-// NewUndoManager creates a new undo manager with the specified limit
-// If limit is 0, a default of 500 is used
+type ring struct {
+	buf   []UndoEntry
+	start int
+	size  int
+}
+
+func newRing(limit int) ring { return ring{buf: make([]UndoEntry, limit)} }
+
+func (r *ring) len() int { return r.size }
+
+func (r *ring) clear() {
+	r.start = 0
+	r.size = 0
+}
+
+func (r *ring) push(e UndoEntry) {
+	if len(r.buf) == 0 {
+		return
+	}
+	if r.size == len(r.buf) {
+		r.start = (r.start + 1) % len(r.buf)
+		r.size--
+	}
+	r.buf[(r.start+r.size)%len(r.buf)] = e
+	r.size++
+}
+
+func (r *ring) pop() (UndoEntry, bool) {
+	if r.size == 0 {
+		return UndoEntry{}, false
+	}
+	idx := (r.start + r.size - 1) % len(r.buf)
+	e := r.buf[idx]
+	r.buf[idx] = UndoEntry{}
+	r.size--
+	return e, true
+}
+
+func (r *ring) at(i int) UndoEntry     { return r.buf[(r.start+i)%len(r.buf)] }
+func (r *ring) set(i int, e UndoEntry) { r.buf[(r.start+i)%len(r.buf)] = e }
+
+// NewUndoManager creates a manager holding up to limit entries per stack.
 func NewUndoManager(limit int) *UndoManager {
 	if limit <= 0 {
 		limit = 500
 	}
-	return &UndoManager{
-		undoStack: make([]UndoEntry, 0, limit),
-		redoStack: make([]UndoEntry, 0, limit),
-		limit:     limit,
-	}
+	return &UndoManager{undo: newRing(limit), redo: newRing(limit)}
 }
 
-// Record records a new edit operation
-// This should be called after every edit to the buffer
-// The entry is pushed to the undo stack and the redo stack is cleared
+// Record pushes a new operation and clears the redo stack.
 func (um *UndoManager) Record(entry UndoEntry) {
-	// Clear redo stack when new operation is recorded
-	um.redoStack = um.redoStack[:0]
-
-	// Add to undo stack
-	um.undoStack = append(um.undoStack, entry)
-
-	// Enforce size limit
-	if len(um.undoStack) > um.limit {
-		um.undoStack = um.undoStack[1:]
-	}
+	um.redo.clear()
+	um.undo.push(entry)
 }
 
-// Undo reverses the last recorded operation
-// Returns the cursor position to restore and whether an undo was performed
-// If no undo is available, returns (0, false)
-func (um *UndoManager) Undo(buf *GapBuffer) (cursorPos int, ok bool) {
-	if len(um.undoStack) == 0 {
+// Undo reverses the newest operation and returns the cursor to restore.
+func (um *UndoManager) Undo(buf *GapBuffer) (int, bool) {
+	entry, ok := um.undo.pop()
+	if !ok {
 		return 0, false
 	}
-
-	// Pop the last undo entry
-	entry := um.undoStack[len(um.undoStack)-1]
-	um.undoStack = um.undoStack[:len(um.undoStack)-1]
-
-	// Apply the reverse operation
-	if len(entry.inserted) > 0 {
-		// Reverse insert = delete
-		buf.Delete(entry.offset, len(entry.inserted))
-	}
-	if len(entry.deleted) > 0 {
-		// Reverse delete = insert
-		buf.Insert(entry.offset, entry.deleted)
-	}
-
-	// Push to redo stack
-	um.redoStack = append(um.redoStack, entry)
-
-	// Return cursor position before the operation
+	applyInverse(buf, entry)
+	um.redo.push(entry)
 	return entry.cursorBefore, true
 }
 
-// Redo re-applies the last undone operation
-// Returns the cursor position to restore and whether a redo was performed
-// If no redo is available, returns (0, false)
-func (um *UndoManager) Redo(buf *GapBuffer) (cursorPos int, ok bool) {
-	if len(um.redoStack) == 0 {
+// Redo re-applies the most recently undone operation.
+func (um *UndoManager) Redo(buf *GapBuffer) (int, bool) {
+	entry, ok := um.redo.pop()
+	if !ok {
 		return 0, false
 	}
-
-	// Pop the last redo entry
-	entry := um.redoStack[len(um.redoStack)-1]
-	um.redoStack = um.redoStack[:len(um.redoStack)-1]
-
-	// Apply the original operation
-	if len(entry.deleted) > 0 {
-		// Original delete
-		buf.Delete(entry.offset, len(entry.deleted))
-	}
-	if len(entry.inserted) > 0 {
-		// Original insert
-		buf.Insert(entry.offset, entry.inserted)
-	}
-
-	// Push back to undo stack
-	um.undoStack = append(um.undoStack, entry)
-
-	// Return cursor position after the operation
+	applyForward(buf, entry)
+	um.undo.push(entry)
 	return entry.cursorAfter, true
 }
 
-// CanUndo returns whether there are operations that can be undone
-func (um *UndoManager) CanUndo() bool {
-	return len(um.undoStack) > 0
+func applyInverse(buf *GapBuffer, e UndoEntry) {
+	if len(e.inserted) > 0 {
+		buf.Delete(e.offset, len(e.inserted))
+	}
+	if len(e.deleted) > 0 {
+		buf.Insert(e.offset, e.deleted)
+	}
 }
 
-// Len returns the number of operations in the undo stack
-func (um *UndoManager) Len() int {
-	return len(um.undoStack)
+func applyForward(buf *GapBuffer, e UndoEntry) {
+	if len(e.deleted) > 0 {
+		buf.Delete(e.offset, len(e.deleted))
+	}
+	if len(e.inserted) > 0 {
+		buf.Insert(e.offset, e.inserted)
+	}
 }
 
-// CanRedo returns whether there are operations that can be redone
-func (um *UndoManager) CanRedo() bool {
-	return len(um.redoStack) > 0
-}
+// CanUndo reports whether an undo is available.
+func (um *UndoManager) CanUndo() bool { return um.undo.len() > 0 }
 
-// Clear clears both undo and redo stacks
+// CanRedo reports whether a redo is available.
+func (um *UndoManager) CanRedo() bool { return um.redo.len() > 0 }
+
+// Len returns the number of undoable operations.
+func (um *UndoManager) Len() int { return um.undo.len() }
+
+// Clear drops all undo and redo history.
 func (um *UndoManager) Clear() {
-	um.undoStack = um.undoStack[:0]
-	um.redoStack = um.redoStack[:0]
+	um.undo.clear()
+	um.redo.clear()
 }
 
-// GroupUndoEntries groups rapid single-character operations into a single undo entry
-// This is called when a typing session ends (e.g., when typing stops for 500ms)
-// startIndex is the index in undoStack where grouping should start
-// Returns the number of entries grouped
+// GroupUndoEntries merges the trailing run of single-rune inserts that are
+// adjacent in both the buffer and the timeline into one entry. It returns the
+// number of entries collapsed.
 func (um *UndoManager) GroupUndoEntries(startIndex int) int {
-	if startIndex < 0 || startIndex >= len(um.undoStack) {
+	if startIndex < 0 || startIndex >= um.undo.len() {
 		return 0
 	}
-
-	originalCount := len(um.undoStack) - startIndex
-	var groups []UndoEntry
-	i := startIndex
-
-	for i < len(um.undoStack) {
-		entry := um.undoStack[i]
-		if len(entry.inserted) != 1 {
-			groups = append(groups, entry)
-			i++
+	out := make([]UndoEntry, 0, um.undo.len())
+	for i := 0; i < um.undo.len(); i++ {
+		out = append(out, um.undo.at(i))
+	}
+	grouped := out[:startIndex]
+	for i := startIndex; i < len(out); {
+		e := out[i]
+		i++
+		if len(e.inserted) != 1 {
+			grouped = append(grouped, e)
 			continue
 		}
-
-		merged := UndoEntry{
-			offset:       entry.offset,
-			inserted:     make([]byte, 0, 32),
-			cursorBefore: entry.cursorBefore,
-			cursorAfter:  entry.cursorAfter,
-		}
-		merged.inserted = append(merged.inserted, entry.inserted...)
-		i++
-
-		for i < len(um.undoStack) {
-			next := um.undoStack[i]
-			if len(next.inserted) != 1 {
-				break
-			}
-			if next.offset != merged.offset+len(merged.inserted) {
-				break
-			}
-			if next.cursorBefore != merged.cursorAfter {
-				break
-			}
-			merged.inserted = append(merged.inserted, next.inserted...)
-			merged.cursorAfter = next.cursorAfter
+		merged := 1
+		for i < len(out) && len(out[i].inserted) == 1 &&
+			e.offset+len(e.inserted) == out[i].offset &&
+			e.cursorAfter == out[i].cursorBefore {
+			e.inserted = append(e.inserted, out[i].inserted...)
+			e.cursorAfter = out[i].cursorAfter
 			i++
+			merged++
 		}
-
-		groups = append(groups, merged)
+		grouped = append(grouped, e)
 	}
-
-	um.undoStack = append(um.undoStack[:startIndex], groups...)
-	return originalCount - len(groups)
+	um.undo.clear()
+	for _, e := range grouped {
+		um.undo.push(e)
+	}
+	return len(out) - len(grouped)
 }

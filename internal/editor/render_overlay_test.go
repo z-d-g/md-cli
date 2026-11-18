@@ -18,8 +18,7 @@ func TestSkipEscape(t *testing.T) {
 		{"dcs st", "\x1bP0data\x1b\\rest", 0, 9},
 	}
 	for _, tt := range tests {
-		got := skipEscape(tt.in, tt.from)
-		if got != tt.want {
+		if got := skipEscape(tt.in, tt.from); got != tt.want {
 			t.Errorf("%s: skipEscape = %d, want %d (in=%q)", tt.name, got, tt.want, tt.in)
 		}
 	}
@@ -40,9 +39,7 @@ func TestDisplayWidthAndOffset(t *testing.T) {
 func TestWriteStyledRunesPreservesOsc(t *testing.T) {
 	styled := "\x1b]8;;http://x\x07hi\x1b]8;;\x1b\\"
 	var b strings.Builder
-	writeStyledRunes(&b, styled, -1, -1, -1, false,
-		func(s string) string { return "[" + s + "]" },
-		func(s string) string { return "{" + s + "}" })
+	writeStyledRunes(&b, styled, -1, -1, func(s string) string { return s })
 	if b.String() != styled {
 		t.Errorf("OSC hyperlink corrupted: got %q, want %q", b.String(), styled)
 	}
@@ -51,40 +48,34 @@ func TestWriteStyledRunesPreservesOsc(t *testing.T) {
 func TestWriteStyledRunesPreservesCsi(t *testing.T) {
 	styled := "\x1b[31mhi\x1b[0m"
 	var b strings.Builder
-	writeStyledRunes(&b, styled, -1, -1, -1, false,
-		func(s string) string { return "[" + s + "]" },
-		func(s string) string { return "{" + s + "}" })
+	writeStyledRunes(&b, styled, -1, -1, func(s string) string { return s })
 	if b.String() != styled {
 		t.Errorf("CSI styling stripped: got %q, want %q", b.String(), styled)
 	}
 }
 
-func TestWriteStyledRunesWideCharCursor(t *testing.T) {
+func TestWriteStyledRunesWideChar(t *testing.T) {
 	styled := "ａb"
-	cursor := func(s string) string { return "[" + s + "]" }
-	selection := func(s string) string { return "{" + s + "}" }
-
 	var b strings.Builder
-	writeStyledRunes(&b, styled, -1, -1, 0, true, cursor, selection)
-	if b.String() != "[ａ]b" {
-		t.Errorf("cursor col 0 on wide char: got %q, want %q", b.String(), "[ａ]b")
-	}
-
-	b.Reset()
-	writeStyledRunes(&b, styled, -1, -1, 2, true, cursor, selection)
-	if b.String() != "ａ[b]" {
-		t.Errorf("cursor col 2 after wide char: got %q, want %q", b.String(), "ａ[b]")
+	writeStyledRunes(&b, styled, -1, -1, func(s string) string { return s })
+	if b.String() != styled {
+		t.Errorf("wide char mangled: got %q, want %q", b.String(), styled)
 	}
 }
 
 func TestSelectionOverlayOnWideChar(t *testing.T) {
 	styled := "ａb"
-	cursor := func(s string) string { return "[" + s + "]" }
 	selection := func(s string) string { return "{" + s + "}" }
 
 	var b strings.Builder
-	writeStyledRunes(&b, styled, 0, 3, -1, false, cursor, selection)
+	writeStyledRunes(&b, styled, 0, 3, selection)
 	if b.String() != "{ａ}{b}" {
 		t.Errorf("selection over 2-col-wide + 1-col: got %q, want %q", b.String(), "{ａ}{b}")
+	}
+
+	b.Reset()
+	writeStyledRunes(&b, styled, 2, 3, selection)
+	if b.String() != "ａ{b}" {
+		t.Errorf("selection over trailing cell: got %q, want %q", b.String(), "ａ{b}")
 	}
 }

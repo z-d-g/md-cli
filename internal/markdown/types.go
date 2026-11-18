@@ -20,6 +20,10 @@ type InlineElement struct {
 	URL       string
 	Delimiter string
 	Children  []InlineElement
+
+	// Start is the byte offset of this element in the source line, or -1 when
+	// the element does not map to a source range.
+	Start int
 }
 
 type SpanType int

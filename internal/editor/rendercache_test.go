@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/z-d-g/md-cli/internal/config"
-	"github.com/z-d-g/md-cli/internal/render"
+	"github.com/z-d-g/md-cli/v2/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/render"
 )
 
 func containsMarkdownSyntax(s string) bool {

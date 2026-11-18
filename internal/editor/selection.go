@@ -34,14 +34,6 @@ func (s *Selection) End() int {
 	return s.cursor
 }
 
-// Length returns the length of the selection in bytes
-func (s *Selection) Length() int {
-	if !s.active {
-		return 0
-	}
-	return s.End() - s.Start()
-}
-
 // IsActive returns whether there is an active selection
 func (s *Selection) IsActive() bool {
 	return s.active
@@ -92,28 +84,6 @@ func (s *Selection) GetSelectedText(buf *GapBuffer) []byte {
 	}
 
 	return buf.slice(start, end)
-}
-
-// Cut deletes the selected text and returns it
-// Also clears the selection
-func (s *Selection) Cut(buf *GapBuffer) []byte {
-	if !s.active {
-		return nil
-	}
-
-	selected := s.GetSelectedText(buf)
-	if selected == nil {
-		s.Clear()
-		return nil
-	}
-
-	start := s.Start()
-	end := s.End()
-
-	buf.Delete(start, end-start)
-	s.Clear()
-
-	return selected
 }
 
 // SelectAll selects the entire buffer content

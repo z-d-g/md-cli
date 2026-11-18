@@ -60,7 +60,7 @@ func renderCheckbox(line string, r *lipglossRenderer) string {
 	content := strings.TrimSpace(rest[contentStart:])
 	elements := ParseInlineElements(content)
 	styledContent := r.RenderInline(elements, lipgloss.Style{})
-	return r.styleCache.bulletFunc(checkboxChar+" ") + styledContent
+	return r.styles.Bullet.Render(checkboxChar+" ") + styledContent
 }
 
 // renderNumberedList renders a numbered list item with inline styling.
@@ -73,7 +73,7 @@ func renderNumberedList(line string, r *lipglossRenderer) string {
 	content := strings.TrimSpace(after)
 	elements := ParseInlineElements(content)
 	styledContent := r.RenderInline(elements, lipgloss.Style{})
-	return r.styleCache.bulletFunc(before+". ") + styledContent
+	return r.styles.Bullet.Render(before+". ") + styledContent
 }
 
 // renderBulletList renders an unordered list item with inline styling.
@@ -81,5 +81,5 @@ func renderBulletList(line string, r *lipglossRenderer) string {
 	content := strings.TrimSpace(line[1:])
 	elements := ParseInlineElements(content)
 	styledContent := r.RenderInline(elements, lipgloss.Style{})
-	return r.styleCache.bulletFunc("• ") + styledContent
+	return r.styles.Bullet.Render("• ") + styledContent
 }

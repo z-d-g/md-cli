@@ -19,8 +19,26 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
       - name: Run tests with coverage
-        run: go test -coverprofile=coverage.txt ./...
+        run: go test -race -coverprofile=coverage.txt ./...
+
+      - name: Cross-compile
+        run: |
+          set -euo pipefail
+          for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS=${p%/*} GOARCH=${p#*/} CGO_ENABLED=0 go build -trimpath -o "${RUNNER_TEMP}/md-cli" ./cmd/md-cli
+          done
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe

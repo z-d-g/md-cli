@@ -41,32 +41,6 @@ func TestSelectionVisualization(t *testing.T) {
 	}
 }
 
-func TestSelectionCut(t *testing.T) {
-	content := "HelloWorld"
-	editor := NewEditor(content, testRenderer())
-
-	editor.selection.Activate(5)
-	editor.selection.Extend(10)
-
-	cutContent := editor.selection.Cut(editor.buf)
-
-	if string(cutContent) != "World" {
-		t.Errorf("Cut content should be 'World', got '%s'", string(cutContent))
-	}
-
-	if editor.buf.Len() != 5 {
-		t.Errorf("Buffer length should be 5 after cut, got %d", editor.buf.Len())
-	}
-
-	if string(editor.buf.Contents()) != "Hello" {
-		t.Errorf("Buffer content should be 'Hello', got '%s'", string(editor.buf.Contents()))
-	}
-
-	if editor.selection.IsActive() {
-		t.Error("Selection should not be active after Cut()")
-	}
-}
-
 func TestSelectionGetSelectedText(t *testing.T) {
 	content := "Hello World"
 	editor := NewEditor(content, testRenderer())
@@ -82,26 +56,6 @@ func TestSelectionGetSelectedText(t *testing.T) {
 
 	if !editor.selection.IsActive() {
 		t.Error("Selection should remain active after GetSelectedText()")
-	}
-}
-
-func TestSelectionLength(t *testing.T) {
-	sel := NewSelection()
-	if sel.Length() != 0 {
-		t.Errorf("inactive selection length = %d, want 0", sel.Length())
-	}
-
-	sel.Activate(0)
-	sel.Extend(5)
-	if sel.Length() != 5 {
-		t.Errorf("selection length = %d, want 5", sel.Length())
-	}
-
-	// Reverse direction
-	sel.Activate(10)
-	sel.Extend(3)
-	if sel.Length() != 7 {
-		t.Errorf("reverse selection length = %d, want 7", sel.Length())
 	}
 }
 
@@ -175,8 +129,8 @@ func TestSelectionMoveCursor(t *testing.T) {
 	if !sel.IsActive() {
 		t.Error("MoveCursor should activate selection")
 	}
-	if sel.Length() != 0 {
-		t.Errorf("length = %d, want 0", sel.Length())
+	if sel.Start() != sel.End() {
+		t.Errorf("empty selection = [%d,%d), want equal", sel.Start(), sel.End())
 	}
 
 	// Second move extends
@@ -196,36 +150,5 @@ func TestSelectionGetSelectedTextClamp(t *testing.T) {
 	selected := editor.selection.GetSelectedText(editor.buf)
 	if string(selected) != "short" {
 		t.Errorf("clamped text = %q, want %q", selected, "short")
-	}
-}
-
-func TestSelectionCutInactive(t *testing.T) {
-	content := "hello"
-	editor := NewEditor(content, testRenderer())
-
-	result := editor.selection.Cut(editor.buf)
-	if result != nil {
-		t.Error("cut on inactive selection should return nil")
-	}
-}
-
-func TestSelectionWithUndo(t *testing.T) {
-	content := "HelloWorld"
-	editor := NewEditor(content, testRenderer())
-
-	editor.selection.Activate(5)
-	editor.selection.Extend(10)
-
-	kb := editor.keyBindings
-	kb.handleCut()
-
-	if string(editor.buf.Contents()) != "Hello" {
-		t.Errorf("After cut, buffer content should be 'Hello', got '%s'", string(editor.buf.Contents()))
-	}
-
-	editor.undo.Undo(editor.buf)
-
-	if string(editor.buf.Contents()) != "HelloWorld" {
-		t.Errorf("After undo, buffer content should be 'HelloWorld', got '%s'", string(editor.buf.Contents()))
 	}
 }

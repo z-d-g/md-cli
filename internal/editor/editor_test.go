@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/z-d-g/md-cli/internal/config"
-	"github.com/z-d-g/md-cli/internal/render"
+	"github.com/z-d-g/md-cli/v2/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/render"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -27,7 +27,7 @@ func TestCursorMovement(t *testing.T) {
 
 	// Test right arrow key
 	msg := tea.KeyPressMsg{Text: "right"}
-	_, cmd := editor.Update(msg)
+	cmd := editor.Update(msg)
 	if cmd != nil {
 		t.Fatalf("expected no command, got %v", cmd)
 	}
@@ -39,7 +39,7 @@ func TestCursorMovement(t *testing.T) {
 
 	// Test down arrow key
 	msg = tea.KeyPressMsg{Text: "down"}
-	_, cmd = editor.Update(msg)
+	cmd = editor.Update(msg)
 	if cmd != nil {
 		t.Fatalf("expected no command, got %v", cmd)
 	}
@@ -107,16 +107,33 @@ func TestCursorBarRendering(t *testing.T) {
 		}
 	})
 
-	t.Run("cursor at end", func(t *testing.T) {
+	t.Run("cursor at end renders content", func(t *testing.T) {
 		var b strings.Builder
 		rawLine := "Hello"
 		styledLine := "Hello"
 
 		editor.renderWithCursor(&b, rawLine, styledLine, 5)
 
-		result := b.String()
-		if len(result) <= len("Hello") {
-			t.Errorf("Expected cursor styling at end, got: %q", result)
+		if got := b.String(); got != "Hello" {
+			t.Errorf("renderWithCursor at end = %q, want %q", got, "Hello")
+		}
+	})
+
+	t.Run("cursor screen position", func(t *testing.T) {
+		editor.buf = NewGapBuffer([]byte("abcdef\nghijkl"))
+		editor.nav = NewNavigation(editor.buf, 0)
+		editor.scroll = 0
+		editor.SetSize(80, 10)
+
+		row, col := editor.CursorScreen()
+		if row != 0 || col != editor.getLineNumWidth() {
+			t.Errorf("CursorScreen() = (%d,%d), want (0,%d)", row, col, editor.getLineNumWidth())
+		}
+
+		editor.nav.SetCursor(7) // start of second line
+		row, col = editor.CursorScreen()
+		if row != 1 || col != editor.getLineNumWidth() {
+			t.Errorf("CursorScreen() row 1 = (%d,%d), want (1,%d)", row, col, editor.getLineNumWidth())
 		}
 	})
 

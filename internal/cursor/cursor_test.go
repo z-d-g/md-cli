@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,26 +59,37 @@ func TestRemovePosition(t *testing.T) {
 func TestConfigPath(t *testing.T) {
 	ps := &PositionStore{cacheDir: "/tmp/test"}
 	got := ps.configPath("/path/to/file.md")
-	want := filepath.Join("/tmp/test", "_path_to_file.md.json")
-	if got != want {
-		t.Errorf("configPath() = %q, want %q", got, want)
+	if filepath.Dir(got) != "/tmp/test" {
+		t.Errorf("configPath() dir = %q, want /tmp/test", filepath.Dir(got))
+	}
+	if filepath.Ext(got) != ".json" {
+		t.Errorf("configPath() ext = %q, want .json", filepath.Ext(got))
+	}
+	if len(filepath.Base(got)) != sha256.Size*2+len(".json") {
+		t.Errorf("configPath() base = %q, want %d hex chars", filepath.Base(got), sha256.Size*2)
 	}
 }
 
-func TestSanitize(t *testing.T) {
-	tests := []struct {
-		path string
-		want string
-	}{
-		{"/path/to/file.md", "_path_to_file.md"},
-		{"C:\\Users\\file.md", "C__Users_file.md"},
-		{".hidden", "_hidden"},
-		{"normal.md", "normal.md"},
+func TestKeyCollisionFree(t *testing.T) {
+	if key("/tmp/a/b.md") == key("/_tmp/a/b.md") {
+		t.Error("distinct paths must not share a key")
 	}
-	for _, tt := range tests {
-		if got := sanitize(tt.path); got != tt.want {
-			t.Errorf("sanitize(%q) = %q, want %q", tt.path, got, tt.want)
-		}
+	if key("a/../b.md") != key("b.md") {
+		t.Error("cleaned paths must share a key")
+	}
+}
+
+func TestSetPositionAtomicWrite(t *testing.T) {
+	ps := testStore(t)
+	if err := ps.SetPosition("/atomic.md", FileConfig{CursorLine: 1, CursorCol: 2}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(ps.cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("cache dir has %d entries, want 1", len(entries))
 	}
 }
 

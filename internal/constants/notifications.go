@@ -8,6 +8,7 @@ const (
 	CutToClipboard      NotificationType = "cut_to_clipboard"
 	PastedFromClipboard NotificationType = "pasted_from_clipboard"
 	ExitConfirmation    NotificationType = "exit"
+	ClipboardError      NotificationType = "clipboard_error"
 )
 
 func (nt NotificationType) Message() string {
@@ -22,6 +23,8 @@ func (nt NotificationType) Message() string {
 		return "Pasted"
 	case ExitConfirmation:
 		return "Unsaved changes. Quit? (y/n)"
+	case ClipboardError:
+		return "Clipboard unavailable"
 	default:
 		return string(nt)
 	}

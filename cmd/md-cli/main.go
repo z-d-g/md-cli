@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/z-d-g/md-cli/internal/app"
-	"github.com/z-d-g/md-cli/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/app"
+	"github.com/z-d-g/md-cli/v2/internal/config"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -27,7 +27,7 @@ func main() {
 	}
 
 	if cliArgs.Help {
-		app.PrintUsage()
+		app.PrintUsage(os.Stdout)
 		return
 	}
 
@@ -37,9 +37,15 @@ func main() {
 
 	if cliArgs.PrintOnly {
 		if hasStdin {
-			app.HandlePrintContent(pipedContent, cfg)
-		} else {
-			app.HandlePrintMode(cliArgs.Files, cfg)
+			app.HandlePrintContent(os.Stdout, pipedContent, cfg)
+			return
+		}
+		if len(cliArgs.Files) == 0 {
+			app.PrintUsage(os.Stderr)
+			os.Exit(2)
+		}
+		if err := app.HandlePrintMode(os.Stdout, cliArgs.Files, cfg); err != nil {
+			os.Exit(1)
 		}
 		return
 	}
@@ -47,12 +53,12 @@ func main() {
 	if hasStdin {
 		fmt.Fprintln(os.Stderr, "Interactive mode requires --print when reading from stdin.")
 		fmt.Fprintln(os.Stderr, "Usage: cat file.md | md-cli --print")
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	if len(cliArgs.Files) == 0 {
-		app.PrintUsage()
-		os.Exit(1)
+		app.PrintUsage(os.Stderr)
+		os.Exit(2)
 	}
 
 	p := tea.NewProgram(app.NewModel(cliArgs.Files[0], cfg))

@@ -3,7 +3,7 @@ package render
 import (
 	"strings"
 
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 
 	"charm.land/lipgloss/v2"
 )
@@ -43,7 +43,7 @@ func (renderer *lipglossRenderer) RenderInline(elements []InlineElement, base li
 			content := renderer.RenderInline(ParseInlineElements(elem.Content), lipgloss.Style{})
 			result.WriteString(renderer.RenderLink(content, elem.URL))
 		case InlineImage:
-			result.WriteString(renderImageAlt(elem.Content, &renderer.styleCache))
+			result.WriteString(renderImageAlt(elem.Content, renderer.styles))
 		case InlineStrikethrough:
 			content := renderer.RenderInline(elem.Children, base.Inherit(renderer.styles.Strikethrough))
 			result.WriteString(content)

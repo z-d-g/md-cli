@@ -1,8 +1,12 @@
+# Build output
 bin/
+dist/
+mdcli
+
+# Test and coverage artifacts
 coverage.*
+cover.out
+.testbin/
 
-
-**/*.md
-!README.md
-!CONTRIBUTING.md
-!.github/**
+# Scratch markdown fixtures at the repo root
+/test*.md

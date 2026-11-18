@@ -1,10 +1,9 @@
 package editor
 
 import (
-	"strings"
 	"unicode/utf8"
 
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 )
 
 // Syntax types delegate to the shared markdown package.
@@ -33,9 +32,6 @@ func FindSyntaxSpans(line string) []SyntaxSpan {
 }
 
 // FindClosingDelimiter delegates to the shared markdown package implementation.
-func FindClosingDelimiter(line string, start int, delimiter string) int {
-	return markdown.FindClosingDelimiter(line, start, delimiter)
-}
 
 func IsCursorOnSyntax(line string, col int) (bool, SyntaxSpan) {
 	spans := FindSyntaxSpans(line)
@@ -65,71 +61,31 @@ func runeToByteOffset(s string, runeIndex int) int {
 	return byteOffset
 }
 
-func newCodeFenceTracker(buf *GapBuffer) *markdown.CodeFenceTracker {
-	lines := make([]string, buf.LineCount())
-	for i := range lines {
-		lines[i] = buf.LineAt(i)
+// FindBlockRegion reports the inclusive line range shown as raw source when the
+// cursor sits on row. The doc is the parsed document snapshot for this frame.
+func FindBlockRegion(doc *markdown.Doc, row int) (int, int, bool) {
+	if doc == nil {
+		return row, row, false
 	}
-	return markdown.NewCodeFenceTracker(lines)
-}
-
-func FindBlockRegion(buf *GapBuffer, cursorRow int, tracker *markdown.CodeFenceTracker) (int, int, bool) {
-	if cursorRow < 0 || cursorRow >= buf.LineCount() {
-		return cursorRow, cursorRow, false
+	if row < 0 || row >= doc.Len() {
+		return row, row, false
 	}
-	if tracker == nil {
-		tracker = newCodeFenceTracker(buf)
-	}
-	currentLine := buf.LineAt(cursorRow)
-	if tracker.IsInside(cursorRow) || markdown.IsCodeFence(currentLine) {
-		start, end := tracker.CodeBlockBounds(cursorRow)
+	kind := doc.LineKind(row)
+	if kind == markdown.LineCodeFence || doc.InCode(row) {
+		start, end := doc.Bounds(row)
 		return start, end, true
 	}
-	if strings.HasPrefix(strings.TrimSpace(currentLine), ">") {
-		start, end := findBlockquoteBounds(buf, cursorRow)
+	if kind == markdown.LineBlockQuote || kind >= markdown.LineHeading1 && kind <= markdown.LineHeading6 {
+		start, end := doc.Bounds(row)
 		return start, end, true
 	}
-	if markdown.IsTableLine(currentLine) {
-		start, end := findTableBounds(buf, cursorRow)
+	if start, end := doc.Bounds(row); start != row || end != row {
 		return start, end, true
 	}
-	if markdown.IsListLine(currentLine) {
-		start, end := findListBounds(buf, cursorRow)
-		return start, end, true
+	if hasInlineSyntax(doc.Lines()[row]) {
+		return row, row, true
 	}
-	if markdown.IsHeadingLine(currentLine) {
-		return cursorRow, cursorRow, true
-	}
-	if hasInlineSyntax(currentLine) {
-		return cursorRow, cursorRow, true
-	}
-	return cursorRow, cursorRow, false
-}
-
-func findBlockquoteBounds(buf *GapBuffer, row int) (int, int) {
-	start, end := row, row
-
-	for start > 0 && strings.HasPrefix(strings.TrimSpace(buf.LineAt(start-1)), ">") {
-		start--
-	}
-	for end < buf.LineCount()-1 && strings.HasPrefix(strings.TrimSpace(buf.LineAt(end+1)), ">") {
-		end++
-	}
-
-	return start, end
-}
-
-func findTableBounds(buf *GapBuffer, row int) (int, int) {
-	start, end := row, row
-
-	for start > 0 && markdown.IsTableLine(buf.LineAt(start-1)) {
-		start--
-	}
-	for end < buf.LineCount()-1 && markdown.IsTableLine(buf.LineAt(end+1)) {
-		end++
-	}
-
-	return start, end
+	return row, row, false
 }
 
 func hasInlineSyntax(line string) bool {
@@ -143,26 +99,4 @@ func hasInlineSyntax(line string) bool {
 		}
 	}
 	return false
-}
-
-func findListBounds(buf *GapBuffer, row int) (int, int) {
-	start, end := row, row
-
-	for start > 0 && (markdown.IsListLine(buf.LineAt(start-1)) || markdown.IsEmptyLine(buf.LineAt(start-1))) {
-		start--
-		if !markdown.IsListLine(buf.LineAt(start)) && !markdown.IsEmptyLine(buf.LineAt(start)) {
-			start++
-			break
-		}
-	}
-
-	for end < buf.LineCount()-1 && (markdown.IsListLine(buf.LineAt(end+1)) || markdown.IsEmptyLine(buf.LineAt(end+1))) {
-		end++
-		if !markdown.IsListLine(buf.LineAt(end)) && !markdown.IsEmptyLine(buf.LineAt(end)) {
-			end--
-			break
-		}
-	}
-
-	return start, end
 }

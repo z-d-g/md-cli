@@ -2,385 +2,368 @@ package markdown
 
 import (
 	"strings"
-	"unicode/utf8"
+
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	extast "github.com/yuin/goldmark/v2/extension/ast"
+	gparser "github.com/yuin/goldmark/v2/parser"
 )
+
+// md is the shared goldmark parser with the extensions md-cli renders.
+// It is stateless after construction, so one instance serves every line.
+var md = newParser()
+
+func newParser() gparser.Parser {
+	return gparser.New(gparser.WithExtensions(
+		extension.NewTableParser(),
+		extension.NewStrikethroughParser(),
+		extension.NewTaskListItemParser(),
+		extension.NewLinkifyParser(),
+		NewUnderlineParser(),
+	))
+}
 
 // ParseInlineElements parses a markdown line into inline elements.
 func ParseInlineElements(line string) []InlineElement {
-	var elements []InlineElement
-	i := 0
-
-	for i < len(line) {
-		// Bold+Italic: ***text*** or ___text___
-		if i+3 <= len(line) && (line[i:i+3] == "***" || line[i:i+3] == "___") {
-			end := FindClosingDelimiter(line, i+3, line[i:i+3])
-			if end != -1 {
-				content := line[i+3 : end]
-				nestedElements := ParseInlineElements(content)
-				elements = append(elements, InlineElement{
-					Type:      InlineBoldItalic,
-					Content:   content,
-					Delimiter: line[i : i+3],
-					Children:  nestedElements,
-				})
-				i = end + 3
-				continue
-			}
-		}
-
-		// Bold: **text** or __text__
-		if i+2 <= len(line) && (line[i:i+2] == "**" || line[i:i+2] == "__") {
-			delim := line[i : i+2]
-			end := FindClosingDelimiter(line, i+2, delim)
-			if end != -1 {
-				content := line[i+2 : end]
-				nestedElements := ParseInlineElements(content)
-				elements = append(elements, InlineElement{
-					Type:      InlineBold,
-					Content:   content,
-					Delimiter: delim,
-					Children:  nestedElements,
-				})
-				i = end + 2
-				continue
-			}
-		}
-
-		// Underline: ++text++
-		if i+2 <= len(line) && line[i:i+2] == "++" {
-			end := FindClosingDelimiter(line, i+2, "++")
-			if end != -1 {
-				content := line[i+2 : end]
-				nestedElements := ParseInlineElements(content)
-				elements = append(elements, InlineElement{
-					Type:      InlineUnderline,
-					Content:   content,
-					Delimiter: "++",
-					Children:  nestedElements,
-				})
-				i = end + 2
-				continue
-			}
-		}
-
-		// Italic: *text* or _text_
-		if i+1 <= len(line) && (line[i] == '*' || line[i] == '_') {
-			end := FindClosingDelimiter(line, i+1, string(line[i]))
-			if end != -1 {
-				content := line[i+1 : end]
-				nestedElements := ParseInlineElements(content)
-				elements = append(elements, InlineElement{
-					Type:      InlineItalic,
-					Content:   content,
-					Delimiter: string(line[i]),
-					Children:  nestedElements,
-				})
-				i = end + 1
-				continue
-			}
-		}
-
-		// Strikethrough: ~~text~~
-		if i+2 <= len(line) && line[i:i+2] == "~~" {
-			end := FindClosingDelimiter(line, i+2, "~~")
-			if end != -1 {
-				content := line[i+2 : end]
-				nestedElements := ParseInlineElements(content)
-				elements = append(elements, InlineElement{
-					Type:      InlineStrikethrough,
-					Content:   content,
-					Delimiter: "~~",
-					Children:  nestedElements,
-				})
-				i = end + 2
-				continue
-			}
-		}
-
-		// Code spans: `code`
-		if i+1 <= len(line) && line[i] == '`' {
-			end := FindClosingDelimiter(line, i+1, "`")
-			if end != -1 {
-				content := line[i+1 : end]
-				elements = append(elements, InlineElement{
-					Type:      InlineCode,
-					Content:   content,
-					Delimiter: "`",
-				})
-				i = end + 1
-				continue
-			}
-		}
-
-		// Links: [text](url)
-		if i+1 <= len(line) && line[i] == '[' {
-			textEnd := FindClosingDelimiter(line, i+1, "]")
-			if textEnd != -1 && textEnd+1 < len(line) && line[textEnd+1] == '(' {
-				urlEnd := FindClosingDelimiter(line, textEnd+2, ")")
-				if urlEnd != -1 {
-					linkText := line[i+1 : textEnd]
-					linkURL := line[textEnd+2 : urlEnd]
-					elements = append(elements, InlineElement{
-						Type:    InlineLink,
-						Content: linkText,
-						URL:     linkURL,
-					})
-					i = urlEnd + 1
-					continue
-				}
-			}
-		}
-
-		// Images: ![alt](url)
-		if i+2 <= len(line) && line[i:i+2] == "![" {
-			altEnd := FindClosingDelimiter(line, i+2, "]")
-			if altEnd != -1 && altEnd+1 < len(line) && line[altEnd+1] == '(' {
-				urlEnd := FindClosingDelimiter(line, altEnd+2, ")")
-				if urlEnd != -1 {
-					altText := line[i+2 : altEnd]
-					imageURL := line[altEnd+2 : urlEnd]
-					elements = append(elements, InlineElement{
-						Type:    InlineImage,
-						Content: altText,
-						URL:     imageURL,
-					})
-					i = urlEnd + 1
-					continue
-				}
-			}
-		}
-
-		// Regular character — handle UTF-8 properly
-		if i < len(line) {
-			r, size := utf8.DecodeRuneInString(line[i:])
-			if r == utf8.RuneError && size == 1 {
-				elements = append(elements, InlineElement{
-					Type:    InlineText,
-					Content: string(line[i]),
-				})
-				i++
-			} else {
-				elements = append(elements, InlineElement{
-					Type:    InlineText,
-					Content: string(r),
-				})
-				i += size
-			}
-		}
-	}
-
-	return elements
+	return parseNodes(md.Parse([]byte(line)), line)
 }
 
-// FindSyntaxSpans converts inline elements to syntax spans for source-mode rendering.
+// parseNodes converts the inline content of root. Markdown wraps inline nodes
+// in a block (Paragraph, Heading, ...), so the block itself is descended but
+// the inline children become the element list.
+func parseNodes(root ast.Node, line string) []InlineElement {
+	src := []byte(line)
+	for c := root.FirstChild(); c != nil; c = c.NextSibling() {
+		if c.FirstChild() == nil {
+			continue
+		}
+		return children(c, src, line)
+	}
+	return nil
+}
+
+// convert maps one goldmark node onto an InlineElement.
+func convert(n ast.Node, src []byte, line string) InlineElement {
+	switch v := n.(type) {
+	case *ast.Text:
+		return InlineElement{Type: InlineText, Content: v.Value.Value(src), Start: v.Value.Index().Start}
+	case *ast.CodeSpan:
+		open := codeOpenStart(line, v.Pos())
+		return InlineElement{
+			Type:      InlineCode,
+			Content:   v.Value.Value(src),
+			Delimiter: codeDelimiter(line, v.Pos()),
+			Start:     open,
+		}
+	case *ast.Emphasis:
+		typ := InlineItalic
+		if run := runAt(line, v.Pos()); len(run) >= 3 {
+			typ = InlineBoldItalic
+		}
+		return InlineElement{Type: typ, Delimiter: runAt(line, v.Pos()), Content: plainText(v, src), Children: children(v, src, line), Start: v.Pos()}
+	case *ast.Strong:
+		return InlineElement{Type: InlineBold, Delimiter: runAt(line, v.Pos()), Content: plainText(v, src), Children: children(v, src, line), Start: v.Pos()}
+	case *extast.Strikethrough:
+		return InlineElement{Type: InlineStrikethrough, Delimiter: "~~", Content: plainText(v, src), Children: children(v, src, line), Start: v.Pos()}
+	case *Underline:
+		return InlineElement{Type: InlineUnderline, Delimiter: runAt(line, v.Pos()), Content: plainText(v, src), Children: children(v, src, line), Start: v.Pos()}
+	case *ast.Link:
+		return InlineElement{Type: InlineLink, Content: plainText(v, src), URL: v.Destination.Value(src), Start: v.Pos()}
+	case *ast.Image:
+		return InlineElement{Type: InlineImage, Content: plainText(v, src), URL: v.Destination.Value(src), Start: v.Pos()}
+	case *ast.AutoLink:
+		return InlineElement{Type: InlineLink, Content: v.Label.Value(src), URL: v.Destination.Value(src), Start: v.Pos()}
+	}
+	return InlineElement{Type: InlineText, Content: plainText(n, src), Start: n.Pos()}
+}
+
+func children(n ast.Node, src []byte, line string) []InlineElement {
+	var out []InlineElement
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		out = append(out, convert(c, src, line))
+	}
+	return out
+}
+
+// plainText concatenates the visible text of an inline subtree.
+func plainText(n ast.Node, src []byte) string {
+	if t, ok := n.(*ast.Text); ok {
+		return t.Value.Value(src)
+	}
+	var b strings.Builder
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		b.WriteString(plainText(c, src))
+	}
+	return b.String()
+}
+
+// runAt returns the delimiter run that opens at pos.
+func runAt(line string, pos int) string {
+	if pos < 0 || pos >= len(line) {
+		return ""
+	}
+	end := pos
+	for end < len(line) && line[end] == line[pos] {
+		end++
+	}
+	return line[pos:end]
+}
+
+// codeOpenStart returns the byte offset of the backtick run opening a code span
+// whose content begins at pos.
+func codeOpenStart(line string, pos int) int {
+	if pos <= 0 || pos > len(line) {
+		return -1
+	}
+	i := pos - 1
+	if line[i] != '`' {
+		return -1
+	}
+	for i > 0 && line[i-1] == '`' {
+		i--
+	}
+	return i
+}
+
+// codeDelimiter returns the backtick run for a code span whose content begins
+// at pos. CodeSpan content excludes the fences, so the opener is the nearest run
+// before the content.
+func codeDelimiter(line string, pos int) string {
+	start := codeOpenStart(line, pos)
+	if start < 0 {
+		return "`"
+	}
+	return runAt(line, start)
+}
+
+// FindSyntaxSpans returns the byte ranges of every syntax marker on line.
 func FindSyntaxSpans(line string) []SyntaxSpan {
+	spans := blockMarkerSpans(line)
+	spans = append(spans, inlineSpans(line)...)
+	SortSpans(spans)
+	return spans
+}
+
+// inlineSpans walks the goldmark AST for one line and emits delimiter ranges.
+func inlineSpans(line string) []SyntaxSpan {
+	src := []byte(line)
+	root := md.Parse(src)
+	var spans []SyntaxSpan
+	var walk func(n ast.Node)
+	walk = func(n ast.Node) {
+		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+			switch v := c.(type) {
+			case *ast.CodeSpan:
+				spans = appendCodeSpan(spans, line, v)
+			case *ast.Emphasis:
+				spans = appendEmphasis(spans, line, v.Pos(), SpanItalic)
+			case *ast.Strong:
+				spans = appendEmphasis(spans, line, v.Pos(), SpanBold)
+			case *extast.Strikethrough:
+				spans = appendEmphasis(spans, line, v.Pos(), SpanStrikethrough)
+			case *Underline:
+				spans = appendEmphasis(spans, line, v.Pos(), SpanUnderline)
+			case *ast.Link:
+				spans = appendLink(spans, line, v.Pos(), SpanLink)
+			case *ast.Image:
+				spans = appendLink(spans, line, v.Pos(), SpanImage)
+			}
+			walk(c)
+		}
+	}
+	walk(root)
+	return spans
+}
+
+func appendCodeSpan(spans []SyntaxSpan, line string, v *ast.CodeSpan) []SyntaxSpan {
+	contentStart := v.Pos()
+	start := codeOpenStart(line, contentStart)
+	if start < 0 {
+		return spans
+	}
+	run := SplitRun(line, start, "`")
+	if run == 0 {
+		return spans
+	}
+	end := CodeSpanClose(line, contentStart, run)
+	if end < 0 {
+		return append(spans, SyntaxSpan{Start: start, End: start + run, SpanType: SpanCode})
+	}
+	return append(spans,
+		SyntaxSpan{Start: start, End: start + run, SpanType: SpanCode},
+		SyntaxSpan{Start: end, End: end + run, SpanType: SpanCode})
+}
+
+// appendEmphasis emits the opening and closing delimiter ranges. goldmark does
+// not expose emphasis delimiters, so the run length is read from the source and
+// the closer is the matching run at the end of the node.
+func appendEmphasis(spans []SyntaxSpan, line string, pos int, st SpanType) []SyntaxSpan {
+	run := SplitRun(line, pos, "*_~+")
+	if run == 0 {
+		return spans
+	}
+	switch {
+	case run == 3 && st == SpanItalic:
+		st = SpanBoldItalic
+	case run == 3 && st == SpanBold:
+		st = SpanBoldItalic
+	}
+	if close := FindClosingDelimiter(line, pos+run, line[pos:pos+run]); close >= 0 {
+		return append(spans,
+			SyntaxSpan{Start: pos, End: pos + run, SpanType: st},
+			SyntaxSpan{Start: close, End: close + run, SpanType: st})
+	}
+	return append(spans, SyntaxSpan{Start: pos, End: pos + run, SpanType: st})
+}
+
+// appendLink emits the [ ] ( ) ranges for a link or image.
+func appendLink(spans []SyntaxSpan, line string, pos int, st SpanType) []SyntaxSpan {
+	rest := line[pos:]
+	open := strings.IndexByte(rest, '[')
+	if open < 0 {
+		return spans
+	}
+	start := pos + open
+	closeRel := strings.IndexByte(rest[open:], ']')
+	if closeRel < 0 {
+		return spans
+	}
+	closeIdx := start + closeRel
+	if closeIdx+1 >= len(line) || line[closeIdx+1] != '(' {
+		return spans
+	}
+	urlEnd := strings.IndexByte(line[closeIdx+2:], ')')
+	if urlEnd < 0 {
+		return spans
+	}
+	urlEnd += closeIdx + 2
+
+	spans = append(spans,
+		SyntaxSpan{Start: start, End: start + 1, SpanType: st},
+		SyntaxSpan{Start: closeIdx, End: closeIdx + 1, SpanType: st},
+		SyntaxSpan{Start: closeIdx + 1, End: closeIdx + 2, SpanType: st},
+		SyntaxSpan{Start: urlEnd, End: urlEnd + 1, SpanType: st})
+	if pos < start {
+		spans = append(spans, SyntaxSpan{Start: pos, End: start + 1, SpanType: st})
+	}
+	return spans
+}
+
+func blockMarkerSpans(line string) []SyntaxSpan {
+	trimmed := strings.TrimLeft(line, " \t")
+	indent := len(line) - len(trimmed)
 	var spans []SyntaxSpan
 
-	// Block-level markers first
-	if has, sp := findHeadingMarker(line); has {
-		spans = append(spans, sp)
+	if n := leadingRun(trimmed, '#'); n > 0 && n < len(trimmed) && trimmed[n] == ' ' {
+		spans = append(spans, SyntaxSpan{Start: indent, End: indent + n, SpanType: SpanHeadingMarker})
 	}
-	if has, sp := findBlockquoteMarker(line); has {
-		spans = append(spans, sp)
+	if depth, width := blockquotePrefix(trimmed); depth > 0 {
+		spans = append(spans, SyntaxSpan{Start: indent, End: indent + width, SpanType: SpanBlockquoteMarker})
 	}
-	if has, sp := findListMarker(line); has {
-		spans = append(spans, sp)
+	if m := listMarkerStart(line); m >= 0 {
+		spans = append(spans, SyntaxSpan{Start: m, End: m + listMarkerLen(line, m), SpanType: SpanListMarker})
 	}
 	if IsHorizontalRule(line) {
 		spans = append(spans, SyntaxSpan{Start: 0, End: len(line), SpanType: SpanHR})
 	}
-
-	// Inline spans from element parsing
-	spans = append(spans, inlineToSpans(line)...)
 	return spans
 }
 
-func findHeadingMarker(line string) (bool, SyntaxSpan) {
-	trimmed := strings.TrimSpace(line)
-	if !strings.HasPrefix(trimmed, "#") {
-		return false, SyntaxSpan{}
-	}
-	hashCount := 0
-	for i := 0; i < len(trimmed) && i < 6; i++ {
-		if trimmed[i] == '#' {
-			hashCount++
-		} else {
-			break
+func blockquotePrefix(s string) (int, int) {
+	depth, i := 0, 0
+	for i < len(s) {
+		switch {
+		case s[i] == '>':
+			depth++
+			i++
+		case s[i] == ' ' || s[i] == '\t':
+			i++
+		default:
+			if depth == 0 {
+				return 0, 0
+			}
+			return depth, i
 		}
-	}
-	if hashCount > 0 && hashCount < len(trimmed) && trimmed[hashCount] == ' ' {
-		idx := strings.Index(line, "#")
-		return true, SyntaxSpan{
-			Start:    idx,
-			End:      idx + hashCount,
-			SpanType: SpanHeadingMarker,
-		}
-	}
-	return false, SyntaxSpan{}
-}
-
-func findBlockquoteMarker(line string) (bool, SyntaxSpan) {
-	trimmed := strings.TrimSpace(line)
-	rest := trimmed
-	depth := 0
-	for strings.HasPrefix(rest, ">") {
-		depth++
-		rest = strings.TrimPrefix(rest, ">")
-		rest = strings.TrimPrefix(rest, " ")
 	}
 	if depth == 0 {
-		return false, SyntaxSpan{}
+		return 0, 0
 	}
-	idx := strings.Index(line, ">")
-	// Find byte end of all leading > and spaces
-	end := idx
-	scan := trimmed
-	for strings.HasPrefix(scan, ">") {
-		end++
-		scan = strings.TrimPrefix(scan, ">")
-		if strings.HasPrefix(scan, " ") {
-			end++
-			scan = strings.TrimPrefix(scan, " ")
+	return depth, i
+}
+
+func leadingRun(s string, c byte) int {
+	n := 0
+	for n < len(s) && s[n] == c {
+		n++
+	}
+	return n
+}
+
+func listMarkerStart(line string) int {
+	for i := 0; i < len(line); i++ {
+		switch {
+		case line[i] == '-' || line[i] == '+' || line[i] == '*':
+			if i+1 < len(line) && (line[i+1] == ' ' || line[i+1] == '\t') {
+				return i
+			}
+		case line[i] >= '0' && line[i] <= '9':
+			if _, ok := numberMarkerEnd(line, i); ok {
+				return i
+			}
+		default:
+			return -1
 		}
 	}
-	return true, SyntaxSpan{
-		Start:    idx,
-		End:      end,
-		SpanType: SpanBlockquoteMarker,
+	return -1
+}
+
+func numberMarkerEnd(line string, i int) (int, bool) {
+	j := i
+	for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+		j++
+	}
+	if j < len(line) && line[j] == '.' && j+1 < len(line) && (line[j+1] == ' ' || line[j+1] == '\t') {
+		return j + 1, true
+	}
+	return 0, false
+}
+
+func listMarkerLen(line string, m int) int {
+	if line[m] >= '0' && line[m] <= '9' {
+		if end, ok := numberMarkerEnd(line, m); ok {
+			return end - m + 1
+		}
+		return 1
+	}
+	return 1
+}
+
+// SortSpans orders spans by start offset, then by end offset.
+func SortSpans(spans []SyntaxSpan) {
+	for i := 1; i < len(spans); i++ {
+		for j := i; j > 0 && (spans[j].Start < spans[j-1].Start ||
+			(spans[j].Start == spans[j-1].Start && spans[j].End < spans[j-1].End)); j-- {
+			spans[j], spans[j-1] = spans[j-1], spans[j]
+		}
 	}
 }
 
-func findListMarker(line string) (bool, SyntaxSpan) {
-	if !IsListLine(line) {
-		return false, SyntaxSpan{}
+// MergeSpans unions overlapping spans so each byte belongs to at most one span.
+func MergeSpans(spans []SyntaxSpan) []SyntaxSpan {
+	if len(spans) < 2 {
+		return spans
 	}
-	trimmed := strings.TrimSpace(line)
-	marker := trimmed[0]
-	idx := strings.IndexByte(line, marker)
-	if idx >= 0 {
-		return true, SyntaxSpan{
-			Start:    idx,
-			End:      idx + 1,
-			SpanType: SpanListMarker,
+	SortSpans(spans)
+	out := spans[:1]
+	for _, s := range spans[1:] {
+		last := &out[len(out)-1]
+		if s.Start <= last.End {
+			if s.End > last.End {
+				last.End = s.End
+			}
+			continue
 		}
+		out = append(out, s)
 	}
-	return false, SyntaxSpan{}
-}
-
-func inlineToSpans(line string) []SyntaxSpan {
-	var spans []SyntaxSpan
-	elements := ParseInlineElements(line)
-	offset := 0
-	collectSpans(elements, line, &offset, &spans)
-	return spans
-}
-
-// collectSpans walks elements and emits syntax spans at delimiter boundaries.
-func collectSpans(elems []InlineElement, line string, offset *int, spans *[]SyntaxSpan) {
-	for _, elem := range elems {
-		switch elem.Type {
-		case InlineText:
-			*offset += len(elem.Content)
-		case InlineBold:
-			dLen := len(elem.Delimiter)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanBold},
-			)
-			*offset += dLen
-			collectSpans(elem.Children, line, offset, spans)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanBold},
-			)
-			*offset += dLen
-		case InlineBoldItalic:
-			dLen := len(elem.Delimiter)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanBoldItalic},
-			)
-			*offset += dLen
-			collectSpans(elem.Children, line, offset, spans)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanBoldItalic},
-			)
-			*offset += dLen
-		case InlineItalic:
-			dLen := len(elem.Delimiter)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanItalic},
-			)
-			*offset += dLen
-			collectSpans(elem.Children, line, offset, spans)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanItalic},
-			)
-			*offset += dLen
-		case InlineUnderline:
-			dLen := len(elem.Delimiter)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanUnderline},
-			)
-			*offset += dLen
-			collectSpans(elem.Children, line, offset, spans)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanUnderline},
-			)
-			*offset += dLen
-		case InlineCode:
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanCode},
-			)
-			*offset += 1 + len(elem.Content)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanCode},
-			)
-			*offset += 1
-		case InlineLink:
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanLink},
-			)
-			*offset += 1 + len(elem.Content)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanLink},
-			)
-			*offset++ // ]
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanLink},
-			)
-			*offset++ // (
-			*offset += len(elem.URL)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanLink},
-			)
-			*offset++ // )
-		case InlineImage:
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 2, SpanType: SpanImage},
-			)
-			*offset += 2 + len(elem.Content)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanImage},
-			)
-			*offset++ // ]
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanImage},
-			)
-			*offset++ // (
-			*offset += len(elem.URL)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + 1, SpanType: SpanImage},
-			)
-			*offset++ // )
-		case InlineStrikethrough:
-			dLen := len(elem.Delimiter)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanStrikethrough},
-			)
-			*offset += dLen
-			collectSpans(elem.Children, line, offset, spans)
-			*spans = append(*spans,
-				SyntaxSpan{Start: *offset, End: *offset + dLen, SpanType: SpanStrikethrough},
-			)
-			*offset += dLen
-		}
-	}
+	return out
 }

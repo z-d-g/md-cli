@@ -3,7 +3,7 @@ package render
 import (
 	"strings"
 
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 )
 
 // PrintRenderer renders all lines of a markdown document using a LineRenderer.
@@ -33,7 +33,7 @@ func (p *PrintRenderer) RenderDocument(content string) string {
 	inCodeBlock := false
 	fenceChar := byte(0)
 	for i, line := range lines {
-		b.WriteString(p.renderer.RenderLine(line, inCodeBlock))
+		b.WriteString(p.renderer.RenderLine(line, i, inCodeBlock))
 		if markdown.IsCodeFence(line) {
 			fc := markdown.CodeFenceChar(line)
 			if inCodeBlock && fc == fenceChar {

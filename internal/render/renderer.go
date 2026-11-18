@@ -3,88 +3,26 @@ package render
 import (
 	"strings"
 
-	"github.com/z-d-g/md-cli/internal/config"
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 
 	"charm.land/lipgloss/v2"
 )
 
-// styleCache holds pre-built StyleFuncs for inline rendering performance.
-type styleCache struct {
-	boldFunc          StyleFunc
-	italicFunc        StyleFunc
-	underlineFunc     StyleFunc
-	strikethroughFunc StyleFunc
-	codeSpanFunc      StyleFunc
-	codeContentFunc   StyleFunc
-	linkFunc          StyleFunc
-	linkURLFunc       StyleFunc
-	imageFunc         StyleFunc
-	blockquoteFunc    StyleFunc
-	bulletFunc        StyleFunc
-	hrFunc            StyleFunc
-	codeFenceFunc     StyleFunc
-	h1Func            StyleFunc
-	h2Func            StyleFunc
-	h3Func            StyleFunc
-	h4Func            StyleFunc
-	h5Func            StyleFunc
-	h6Func            StyleFunc
-	tableBorderFunc   StyleFunc
-	tableHeaderFunc   StyleFunc
-	tableCellFunc     StyleFunc
-	selectionFunc     StyleFunc
-	cursorFunc        StyleFunc
-}
-
 // lipglossRenderer implements LineRenderer using lipgloss for rendering.
 type lipglossRenderer struct {
-	styles         *config.EditorStyles
-	styleCache     styleCache
-	lineNumberFunc StyleFunc
-	table          tableContext
-	tableVersion   int
-	documentLines  func() []string
-	terminalWidth  int
+	styles        *config.EditorStyles
+	tableDocCache *tableDoc
+	tableDocRaw   []string
+	tableDocLines int
+	tableVersion  int
+	documentLines func() []string
+	terminalWidth int
 }
 
 // NewLipglossRenderer creates a LineRenderer backed by lipgloss.
 func NewLipglossRenderer(styles *config.EditorStyles, width int) LineRenderer {
-	r := &lipglossRenderer{
-		styles:        styles,
-		terminalWidth: width,
-	}
-
-	r.styleCache = styleCache{
-		boldFunc:          func(t string) string { return styles.Bold.Render(t) },
-		italicFunc:        func(t string) string { return styles.Italic.Render(t) },
-		underlineFunc:     func(t string) string { return styles.Underline.Render(t) },
-		strikethroughFunc: func(t string) string { return styles.Strikethrough.Render(t) },
-		codeSpanFunc:      func(t string) string { return styles.CodeSpan.Render(t) },
-		codeContentFunc:   func(t string) string { return styles.CodeContent.Render(t) },
-		linkFunc:          func(t string) string { return styles.Link.Render(t) },
-		linkURLFunc:       func(t string) string { return styles.LinkURL.Render(t) },
-		imageFunc:         func(t string) string { return styles.Image.Render(t) },
-		blockquoteFunc:    func(t string) string { return styles.BlockQuote.Render(t) },
-		bulletFunc:        func(t string) string { return styles.Bullet.Render(t) },
-		hrFunc:            func(t string) string { return styles.HorizontalRule.Render(t) },
-		codeFenceFunc:     func(t string) string { return styles.CodeFence.Render(t) },
-		h1Func:            func(t string) string { return styles.H1.Render(t) },
-		h2Func:            func(t string) string { return styles.H2.Render(t) },
-		h3Func:            func(t string) string { return styles.H3.Render(t) },
-		h4Func:            func(t string) string { return styles.H4.Render(t) },
-		h5Func:            func(t string) string { return styles.H5.Render(t) },
-		h6Func:            func(t string) string { return styles.H6.Render(t) },
-		tableBorderFunc:   func(t string) string { return styles.TableBorder.Render(t) },
-		tableHeaderFunc:   func(t string) string { return styles.TableHeader.Render(t) },
-		tableCellFunc:     func(t string) string { return styles.TableCell.Render(t) },
-		selectionFunc:     func(t string) string { return styles.Selection.Render(t) },
-		cursorFunc:        func(t string) string { return styles.Cursor.Render(t) },
-	}
-
-	r.lineNumberFunc = func(t string) string { return styles.LineNumber.Render(t) }
-
-	return r
+	return &lipglossRenderer{styles: styles, terminalWidth: width}
 }
 
 func (r *lipglossRenderer) SetDocument(lines func() []string) {
@@ -100,37 +38,37 @@ func (r *lipglossRenderer) TerminalWidth() int {
 }
 
 func (r *lipglossRenderer) RenderLineNumber(text string) string {
-	return r.lineNumberFunc(text)
+	return r.styles.LineNumber.Render(text)
 }
 
 func (r *lipglossRenderer) RenderCursorChar(ch string) string {
-	return r.styleCache.cursorFunc(ch)
+	return r.styles.Cursor.Render(ch)
 }
 
 func (r *lipglossRenderer) RenderSelectionChar(ch string) string {
-	return r.styleCache.selectionFunc(ch)
+	return r.styles.Selection.Render(ch)
 }
 
 func (r *lipglossRenderer) RenderStyled(text string, lineType int) string {
 	switch lineType {
 	case LineHeading1:
-		return r.styleCache.h1Func(text)
+		return r.styles.H1.Render(text)
 	case LineHeading2:
-		return r.styleCache.h2Func(text)
+		return r.styles.H2.Render(text)
 	case LineHeading3:
-		return r.styleCache.h3Func(text)
+		return r.styles.H3.Render(text)
 	case LineHeading4:
-		return r.styleCache.h4Func(text)
+		return r.styles.H4.Render(text)
 	case LineHeading5:
-		return r.styleCache.h5Func(text)
+		return r.styles.H5.Render(text)
 	case LineHeading6:
-		return r.styleCache.h6Func(text)
+		return r.styles.H6.Render(text)
 	case LineCodeFence:
-		return r.styleCache.codeFenceFunc(text)
+		return r.styles.CodeFence.Render(text)
 	case LineCodeContent:
-		return r.styleCache.codeContentFunc(text)
+		return r.styles.CodeContent.Render(text)
 	case LineBlockQuote:
-		return r.styleCache.blockquoteFunc(text)
+		return r.styles.BlockQuote.Render(text)
 	default:
 		return text
 	}
@@ -153,14 +91,25 @@ func (r *lipglossRenderer) TableVersion() int {
 	return r.tableVersion
 }
 
-func (r *lipglossRenderer) RenderLine(line string, isInCodeBlock bool) string {
+// ResetTable invalidates the cached table index. Table rendering itself is
+// stateless; this exists so document mutations refresh derived widths.
+func (r *lipglossRenderer) ResetTable() {
+	r.tableVersion++
+	r.tableDocCache = nil
+	r.tableDocRaw = nil
+	r.tableDocLines = 0
+}
+
+// RenderLine renders one document line. idx is its zero-based document row;
+// pass -1 when rendering a standalone line with no document context.
+func (r *lipglossRenderer) RenderLine(line string, idx int, isInCodeBlock bool) string {
 	if markdown.IsCodeFence(line) {
 		w := max(r.terminalWidth-4, 10)
-		return r.styleCache.codeFenceFunc(strings.Repeat("┄", w))
+		return r.styles.CodeFence.Render(strings.Repeat("┄", w))
 	}
 
 	if isInCodeBlock {
-		return r.styleCache.codeContentFunc(line)
+		return r.styles.CodeContent.Render(line)
 	}
 
 	if markdown.IsBlockquoteLine(line) {
@@ -173,12 +122,12 @@ func (r *lipglossRenderer) RenderLine(line string, isInCodeBlock bool) string {
 		elements := ParseInlineElements(content)
 		styledContent := r.RenderInline(elements, lipgloss.Style{})
 		prefix := strings.Repeat("│ ", depth)
-		return r.styleCache.blockquoteFunc(prefix) + styledContent
+		return r.styles.BlockQuote.Render(prefix) + styledContent
 	}
 
 	if markdown.IsHorizontalRule(line) {
 		w := max(r.terminalWidth-4, 10)
-		return r.styleCache.hrFunc(strings.Repeat("─", w))
+		return r.styles.HorizontalRule.Render(strings.Repeat("─", w))
 	}
 
 	if markdown.IsHeadingLine(line) {
@@ -192,24 +141,24 @@ func (r *lipglossRenderer) RenderLine(line string, isInCodeBlock bool) string {
 
 		switch level {
 		case 1:
-			return r.styleCache.h1Func(content)
+			return r.styles.H1.Render(content)
 		case 2:
-			return r.styleCache.h2Func(content)
+			return r.styles.H2.Render(content)
 		case 3:
-			return r.styleCache.h3Func(content)
+			return r.styles.H3.Render(content)
 		case 4:
-			return r.styleCache.h4Func(content)
+			return r.styles.H4.Render(content)
 		case 5:
-			return r.styleCache.h5Func(content)
+			return r.styles.H5.Render(content)
 		case 6:
-			return r.styleCache.h6Func(content)
+			return r.styles.H6.Render(content)
 		default:
-			return r.styleCache.h1Func(content)
+			return r.styles.H1.Render(content)
 		}
 	}
 
 	if markdown.IsTableLine(line) {
-		return renderTable(line, r)
+		return renderTable(line, idx, r)
 	}
 
 	if markdown.IsListLine(line) {
@@ -224,11 +173,6 @@ func (r *lipglossRenderer) RenderLine(line string, isInCodeBlock bool) string {
 		}
 
 		return renderBulletList(trimmed, r)
-	}
-
-	// Non-table line: reset table state if was active
-	if r.table.active {
-		r.ResetTable()
 	}
 
 	elements := ParseInlineElements(line)

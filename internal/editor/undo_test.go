@@ -7,19 +7,17 @@ func TestNewUndoManager(t *testing.T) {
 	if um == nil {
 		t.Fatal("NewUndoManager returned nil")
 	}
-	if um.limit != 100 {
-		t.Errorf("limit = %d, want 100", um.limit)
+	if um.undo.buf == nil || len(um.undo.buf) != 100 {
+		t.Errorf("undo capacity = %d, want 100", len(um.undo.buf))
 	}
 }
 
 func TestNewUndoManagerDefault(t *testing.T) {
-	um := NewUndoManager(0)
-	if um.limit != 500 {
-		t.Errorf("default limit = %d, want 500", um.limit)
+	if um := NewUndoManager(0); len(um.undo.buf) != 500 {
+		t.Errorf("default capacity = %d, want 500", len(um.undo.buf))
 	}
-	um = NewUndoManager(-1)
-	if um.limit != 500 {
-		t.Errorf("negative limit = %d, want 500", um.limit)
+	if um := NewUndoManager(-1); len(um.undo.buf) != 500 {
+		t.Errorf("negative limit capacity = %d, want 500", len(um.undo.buf))
 	}
 }
 

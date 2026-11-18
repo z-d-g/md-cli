@@ -2,31 +2,54 @@ package app
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
-	"github.com/z-d-g/md-cli/internal/config"
-	"github.com/z-d-g/md-cli/internal/render"
-	"github.com/z-d-g/md-cli/internal/utils"
+	"github.com/z-d-g/md-cli/v2/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/render"
+	"github.com/z-d-g/md-cli/v2/internal/utils"
+	"golang.org/x/term"
 )
 
-func HandlePrintMode(files []string, cfg *config.Config) {
-	r := render.NewLipglossRenderer(&cfg.EditorStyles, 80)
+// printWidth is the render width for non-interactive output. When stdout is a
+// terminal we use its width, otherwise we fall back to 80 columns.
+const printWidth = 80
+
+func stdoutWidth() int {
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		return w
+	}
+	return printWidth
+}
+
+// HandlePrintMode renders each file to w. Read failures go to stderr and make
+// the function return an error, so pipelines observe a non-zero exit status.
+func HandlePrintMode(w io.Writer, files []string, cfg *config.Config) error {
+	r := render.NewLipglossRenderer(&cfg.EditorStyles, stdoutWidth())
 	pr := render.NewPrintRenderer(r)
 
+	var failed bool
 	for _, f := range files {
 		content, err := utils.ReadFile(f)
 		if err != nil {
-			fmt.Printf("Error reading %s: %v\n", f, err)
+			fmt.Fprintf(os.Stderr, "md-cli: %s: %v\n", f, err)
+			failed = true
 			continue
 		}
-		fmt.Printf("--- %s ---\n%s\n", f, pr.RenderDocument(string(content)))
+		fmt.Fprintf(w, "--- %s ---\n%s\n", f, pr.RenderDocument(string(content)))
 	}
+	if failed {
+		return fmt.Errorf("one or more files could not be read")
+	}
+	return nil
 }
 
-func HandlePrintContent(content string, cfg *config.Config) {
-	r := render.NewLipglossRenderer(&cfg.EditorStyles, 80)
-	lines := strings.SplitN(content, "\n", -1)
+// HandlePrintContent renders markdown read from stdin to w.
+func HandlePrintContent(w io.Writer, content string, cfg *config.Config) {
+	r := render.NewLipglossRenderer(&cfg.EditorStyles, stdoutWidth())
+	lines := strings.Split(content, "\n")
 	r.SetDocument(func() []string { return lines })
 	pr := render.NewPrintRenderer(r)
-	fmt.Print(pr.RenderDocument(content))
+	fmt.Fprint(w, pr.RenderDocument(content))
 }

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/z-d-g/md-cli/internal/config"
-	"github.com/z-d-g/md-cli/internal/constants"
-	"github.com/z-d-g/md-cli/internal/cursor"
-	"github.com/z-d-g/md-cli/internal/editor"
-	"github.com/z-d-g/md-cli/internal/render"
-	"github.com/z-d-g/md-cli/internal/utils"
+	"github.com/z-d-g/md-cli/v2/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/constants"
+	"github.com/z-d-g/md-cli/v2/internal/cursor"
+	"github.com/z-d-g/md-cli/v2/internal/editor"
+	"github.com/z-d-g/md-cli/v2/internal/render"
+	"github.com/z-d-g/md-cli/v2/internal/utils"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -83,6 +83,9 @@ func NewModel(filePath string, cfg *config.Config) Model {
 		CursorStore:  cursorStore,
 	}
 }
+
+// State reports the current dialog state. It exists for tests and embedding.
+func (m Model) State() int { return int(m.state) }
 
 func (m Model) Init() tea.Cmd {
 	return nil
@@ -230,11 +233,7 @@ func (m *Model) saveFile() error {
 }
 
 func (m Model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var edCmd tea.Cmd
-	newEditor, edCmd := m.Editor.Update(msg)
-	if newEditor != nil {
-		m.Editor = newEditor.(*editor.Editor)
-	}
+	edCmd := m.Editor.Update(msg)
 	if m.Editor.Value() == m.SavedContent {
 		m.Editor.MarkClean()
 	} else {
@@ -273,6 +272,10 @@ func (m Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
+	if m.Editor != nil && m.state != stateHelpDialog && m.HelpAnimDir == 0.0 {
+		row, col := m.Editor.CursorScreen()
+		v.Cursor = tea.NewCursor(col, row+m.reservedRows())
+	}
 	return v
 }
 
@@ -332,6 +335,8 @@ func (m Model) statusMessage() string {
 	return truncateText(msg, budget)
 }
 
+// truncWithEllipsis shortens text to maxWidth cells, appending an ellipsis when
+// it had to cut. ANSI-aware truncation lives in the editor's clip helper.
 func truncWithEllipsis(text string, maxWidth int) string {
 	suffix := "…"
 	budget := maxWidth - 1
@@ -339,14 +344,14 @@ func truncWithEllipsis(text string, maxWidth int) string {
 		return suffix
 	}
 	var totalW int
-	lastSafeByte := 0
+	lastSafe := 0
 	for i, r := range text {
 		rw := runewidth.RuneWidth(r)
 		if totalW+rw > budget {
-			return text[:lastSafeByte] + suffix
+			return text[:lastSafe] + suffix
 		}
 		totalW += rw
-		lastSafeByte = i
+		lastSafe = i
 	}
 	return text
 }
@@ -419,186 +424,6 @@ func (m Model) getNotificationMessage() string {
 
 func easeOutQuart(x float64) float64 {
 	return 1.0 - (1.0-x)*(1.0-x)*(1.0-x)*(1.0-x)
-}
-
-func (m *Model) helpDialogLines() []string {
-	if len(m.dialogLines) == 0 || m.Width != m.dialogWidth {
-		dialog := m.renderHelpDialogContent(m.Config.HelpKeyStyle, m.Config.HelpDescStyle, m.Config.HelpSectionStyle, m.Config.InfoStyle)
-		m.dialogWidth = m.Width
-		if dialog == "" {
-			m.dialogLines = nil
-		} else {
-			m.dialogLines = strings.Split(strings.TrimRight(dialog, "\n"), "\n")
-		}
-	}
-	return m.dialogLines
-}
-
-func (m Model) renderHelpOverlay(editorContent string) string {
-	if m.Editor == nil || m.Width < 30 || m.Height <= 0 {
-		return editorContent
-	}
-
-	dialogLines := m.helpDialogLines()
-	if len(dialogLines) == 0 {
-		return editorContent
-	}
-
-	viewport := m.Height - m.reservedRows()
-
-	topOffset := int((1.0 - easeOutQuart(m.HelpAnimOffset)) * float64(len(dialogLines)))
-	if topOffset >= len(dialogLines) {
-		return editorContent
-	}
-
-	lines := make([]string, 0, viewport)
-	for i := topOffset; i < len(dialogLines) && len(lines) < viewport; i++ {
-		lines = append(lines, dialogLines[i])
-	}
-
-	startEditor := len(lines)
-	editorLines := strings.Split(editorContent, "\n")
-	for i := startEditor; i < len(editorLines) && len(lines) < viewport; i++ {
-		lines = append(lines, editorLines[i])
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (m Model) renderHelpDialogContent(key, desc, section, info lipgloss.Style) string {
-	type kv = [2]string
-	type group struct {
-		title string
-		items []kv
-	}
-
-	groups := []group{
-		{"File", []kv{{"Ctrl+S", "Save"}, {"Ctrl+Q", "Quit"}, {"", "STATUS"}}},
-		{"Cursor", []kv{{"↑↓←→", "Move"}, {"Home/End", "Line"}, {"Ctrl+←→", "Word"}, {"PgUp/PgDn", "Page"}, {"Ctrl+Home/End", "Doc"}}},
-		{"Select", []kv{{"Shift+↑↓←→", "Extend"}, {"Ctrl+A", "All"}, {"Ctrl+D", "Word"}, {"Ctrl+L", "Line"}}},
-		{"Edit", []kv{{"Ctrl+C", "Copy"}, {"Ctrl+X", "Cut"}, {"Ctrl+V", "Paste"}, {"Ctrl+Z/Y", "Undo/Redo"}, {"Bksp/Del", "Delete"}, {"Alt+Bksp/Del", "Word del"}}},
-	}
-
-	padL := 2
-	padR := 1
-	borderW := 2
-	contentWidth := m.Width - borderW - padL - padR
-
-	maxKeyW := 0
-	for _, g := range groups {
-		for _, item := range g.items {
-			maxKeyW = max(maxKeyW, lipgloss.Width(key.Render(item[0])))
-		}
-	}
-
-	pair := func(k, d string) string {
-		if k == "" && d == "STATUS" {
-			return m.Config.SavedStyle.Render("● saved") + "  " + m.Config.UnsavedStyle.Render("● unsaved")
-		}
-		kRendered := key.Render(k)
-		pad := maxKeyW - lipgloss.Width(kRendered)
-		return kRendered + strings.Repeat(" ", max(1, pad+1)) + desc.Render(strings.ToLower(d))
-	}
-
-	var numCols int
-	switch {
-	case contentWidth >= 83:
-		numCols = 4
-	case contentWidth >= 55:
-		numCols = 2
-	default:
-		numCols = 1
-	}
-
-	var contentLines []string
-
-	if numCols == 1 {
-		for _, g := range groups {
-			tag := " " + g.title + " "
-			contentLines = append(contentLines,
-				strings.Repeat(" ", padL)+section.Render("─"+tag+"─")+strings.Repeat(" ", padR))
-			for _, item := range g.items {
-				contentLines = append(contentLines,
-					strings.Repeat(" ", padL)+pair(item[0], item[1])+strings.Repeat(" ", padR))
-			}
-			contentLines = append(contentLines,
-				strings.Repeat(" ", padL)+strings.Repeat(" ", padR))
-		}
-	} else {
-		rowGroups := chunkGroups(len(groups), numCols)
-		for _, indices := range rowGroups {
-			colW := (contentWidth - (len(indices) - 1)) / len(indices)
-
-			var headerBuf strings.Builder
-			for i, gi := range indices {
-				if i > 0 {
-					headerBuf.WriteString(" ")
-				}
-				tag := " " + groups[gi].title + " "
-				h := section.Render("─" + tag + "─")
-				headerBuf.WriteString(h)
-				if p := colW - lipgloss.Width(h); p > 0 {
-					headerBuf.WriteString(strings.Repeat(" ", p))
-				}
-			}
-			contentLines = append(contentLines,
-				strings.Repeat(" ", padL)+headerBuf.String()+strings.Repeat(" ", padR))
-
-			maxItems := 0
-			for _, gi := range indices {
-				maxItems = max(maxItems, len(groups[gi].items))
-			}
-			for row := 0; row < maxItems; row++ {
-				var lineBuf strings.Builder
-				for i, gi := range indices {
-					if i > 0 {
-						lineBuf.WriteString(" ")
-					}
-					if row < len(groups[gi].items) {
-						cell := pair(groups[gi].items[row][0], groups[gi].items[row][1])
-						lineBuf.WriteString(cell)
-						if p := colW - lipgloss.Width(cell); p > 0 {
-							lineBuf.WriteString(strings.Repeat(" ", p))
-						}
-					} else {
-						lineBuf.WriteString(strings.Repeat(" ", colW))
-					}
-				}
-				contentLines = append(contentLines,
-					strings.Repeat(" ", padL)+lineBuf.String()+strings.Repeat(" ", padR))
-			}
-		}
-	}
-
-	footerText := " esc or f1 to close "
-	dashW := max(contentWidth-lipgloss.Width(footerText), 0)
-	footerContent := info.Render(
-		strings.Repeat("─", dashW/2) + footerText + strings.Repeat("─", dashW-dashW/2),
-	)
-	contentLines = append(contentLines,
-		strings.Repeat(" ", padL)+footerContent+strings.Repeat(" ", padR))
-
-	dialog := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder(), false, true, true, true).
-		BorderForeground(m.Config.ModalBorderStyle.GetBorderBottomForeground()).
-		Render(strings.Join(contentLines, "\n"))
-
-	return dialog
-}
-
-func chunkGroups(n, cols int) [][]int {
-	rows := (n + cols - 1) / cols
-	result := make([][]int, 0, rows)
-	for r := range rows {
-		start := r * cols
-		end := min(start+cols, n)
-		chunk := make([]int, end-start)
-		for i := start; i < end; i++ {
-			chunk[i-start] = i
-		}
-		result = append(result, chunk)
-	}
-	return result
 }
 
 func (m *Model) showTemporaryNotification(_ string) tea.Cmd {

@@ -2,9 +2,11 @@ package render
 
 import (
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 	"testing"
 
-	"github.com/z-d-g/md-cli/internal/config"
+	"github.com/z-d-g/md-cli/v2/internal/config"
 
 	"charm.land/lipgloss/v2"
 )
@@ -30,7 +32,7 @@ func TestRenderLineHeading(t *testing.T) {
 		{"   ### three-space-indented"},
 	}
 	for _, tt := range tests {
-		result := r.RenderLine(tt.line, false)
+		result := r.RenderLine(tt.line, -1, false)
 		if result == "" {
 			t.Errorf("RenderLine(%q) returned empty", tt.line)
 		}
@@ -42,12 +44,12 @@ func TestRenderLineHeading(t *testing.T) {
 
 func TestRenderLineCodeFence(t *testing.T) {
 	r := testRenderer()
-	result := r.RenderLine("```go", false)
+	result := r.RenderLine("```go", -1, false)
 	if result == "" {
 		t.Error("RenderLine(code fence) returned empty")
 	}
 
-	result = r.RenderLine("code here", true)
+	result = r.RenderLine("code here", -1, true)
 	if result == "" {
 		t.Error("RenderLine(code content) returned empty")
 	}
@@ -55,7 +57,7 @@ func TestRenderLineCodeFence(t *testing.T) {
 
 func TestRenderLineBlockquote(t *testing.T) {
 	r := testRenderer()
-	result := r.RenderLine("> quoted text", false)
+	result := r.RenderLine("> quoted text", -1, false)
 	if result == "" {
 		t.Error("RenderLine(blockquote) returned empty")
 	}
@@ -66,7 +68,7 @@ func TestRenderLineBlockquote(t *testing.T) {
 
 func TestRenderLineHorizontalRule(t *testing.T) {
 	r := testRenderer()
-	result := r.RenderLine("---", false)
+	result := r.RenderLine("---", -1, false)
 	if result == "" {
 		t.Error("RenderLine(hr) returned empty")
 	}
@@ -86,7 +88,7 @@ func TestRenderLineList(t *testing.T) {
 		{"- [x] checked"},
 	}
 	for _, tt := range tests {
-		result := r.RenderLine(tt.line, false)
+		result := r.RenderLine(tt.line, -1, false)
 		if result == "" {
 			t.Errorf("RenderLine(%q) returned empty", tt.line)
 		}
@@ -100,7 +102,7 @@ func TestRenderLineTable(t *testing.T) {
 	})
 	defer r.SetDocument(nil)
 
-	result := r.RenderLine("| A | B |", false)
+	result := r.RenderLine("| A | B |", -1, false)
 	if result == "" {
 		t.Error("RenderLine(table header) returned empty")
 	}
@@ -108,7 +110,7 @@ func TestRenderLineTable(t *testing.T) {
 
 func TestRenderLineNormal(t *testing.T) {
 	r := testRenderer()
-	result := r.RenderLine("plain text", false)
+	result := r.RenderLine("plain text", -1, false)
 	if result != "plain text" {
 		t.Errorf("RenderLine(plain) = %q, want %q", result, "plain text")
 	}
@@ -257,26 +259,57 @@ func TestRenderTableFull(t *testing.T) {
 	r.SetDocument(func() []string { return lines })
 	defer r.SetDocument(nil)
 
-	renderer := r.(*lipglossRenderer)
-
-	header := r.RenderLine(lines[0], false)
+	header := r.RenderLine(lines[0], 0, false)
 	if header == "" {
 		t.Error("table header empty")
 	}
 
-	sep := r.RenderLine(lines[1], false)
+	sep := r.RenderLine(lines[1], 1, false)
 	if sep == "" {
 		t.Error("table separator empty")
 	}
 
-	row := r.RenderLine(lines[2], false)
+	row := r.RenderLine(lines[2], 2, false)
 	if row == "" {
 		t.Error("table row empty")
 	}
 
-	renderer.ResetTable()
-	if renderer.table.active {
-		t.Error("ResetTable should deactivate table")
+	r.ResetTable()
+	if r.TableVersion() == 0 {
+		t.Error("ResetTable should bump table version")
+	}
+}
+
+// Two tables with identical separator text must not share column widths.
+// Regression: renderTable used to look up a row by matching its text, so the
+// second table inherited the first table's widths.
+func TestRenderTableDuplicateSeparators(t *testing.T) {
+	lines := []string{
+		"| AAAAAAAAAAAAAAAAAAAA | B |",
+		"|---|---|",
+		"| 1 | 2 |",
+		"",
+		"| Key | Action |",
+		"|---|---|",
+		"| A | Save |",
+	}
+	r := testRenderer()
+	r.SetDocument(func() []string { return lines })
+	defer r.SetDocument(nil)
+
+	wide := r.RenderLine(lines[0], 0, false)
+	wideSep := r.RenderLine(lines[1], 1, false)
+	narrowSep := r.RenderLine(lines[5], 5, false)
+	narrow := r.RenderLine(lines[6], 6, false)
+
+	if ansi.StringWidth(wideSep) == ansi.StringWidth(narrowSep) {
+		t.Fatalf("separator widths equal (%d); tables share state", ansi.StringWidth(wideSep))
+	}
+	if got, want := ansi.StringWidth(narrow), ansi.StringWidth(narrowSep); got != want {
+		t.Errorf("narrow row width %d != separator width %d", got, want)
+	}
+	if got, want := ansi.StringWidth(wide), ansi.StringWidth(wideSep); got != want {
+		t.Errorf("wide row width %d != separator width %d", got, want)
 	}
 }
 

@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 
 	"charm.land/lipgloss/v2"
 )
@@ -21,11 +21,10 @@ const (
 	InlineUnderline     = markdown.InlineUnderline
 )
 
-type StyleFunc func(text string) string
-
 // LineRenderer handles rendering of markdown lines to styled terminal output.
 type LineRenderer interface {
-	RenderLine(line string, isInCodeBlock bool) string
+	// RenderLine renders line at document row idx (-1 when context-free).
+	RenderLine(line string, idx int, isInCodeBlock bool) string
 	RenderStyled(text string, lineType int) string
 	RenderInline(elements []InlineElement, base lipgloss.Style) string
 	RenderSourceInline(elements []InlineElement, base lipgloss.Style) string
@@ -35,8 +34,9 @@ type LineRenderer interface {
 	RenderLink(text, url string) string
 	SetDocument(lines func() []string)
 	SetTerminalWidth(w int)
-	TableVersion() int
 	TerminalWidth() int
+	TableVersion() int
+	ResetTable()
 }
 
 const (

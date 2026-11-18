@@ -14,6 +14,7 @@ type GapBuffer struct {
 	gapEnd     int
 	capacity   int
 	lineStarts []int
+	lineDirty  bool
 }
 
 // NewGapBuffer creates a gap buffer with optional initial content.
@@ -69,7 +70,7 @@ func (g *GapBuffer) Insert(pos int, text []byte) {
 	copy(g.data[g.gapStart:], text)
 	g.gapStart += len(text)
 
-	g.rebuildLineIndex()
+	g.lineDirty = true
 }
 
 // Delete removes count bytes starting at pos. The range is clamped to the buffer length.
@@ -95,7 +96,7 @@ func (g *GapBuffer) Delete(pos, count int) {
 	g.moveGap(pos)
 	g.gapEnd += count
 
-	g.rebuildLineIndex()
+	g.lineDirty = true
 }
 
 // Contents returns a copy of the buffer contents without the gap.
@@ -268,12 +269,13 @@ func (g *GapBuffer) gapSize() int {
 }
 
 func (g *GapBuffer) ensureLineIndex() {
-	if len(g.lineStarts) == 0 {
+	if g.lineDirty || len(g.lineStarts) == 0 {
 		g.rebuildLineIndex()
 	}
 }
 
 func (g *GapBuffer) rebuildLineIndex() {
+	g.lineDirty = false
 	g.lineStarts = g.lineStarts[:0]
 	g.lineStarts = append(g.lineStarts, 0)
 

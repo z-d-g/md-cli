@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/z-d-g/md-cli/internal/constants"
-	"github.com/z-d-g/md-cli/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/constants"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
 
 	nativeclipboard "github.com/aymanbagabas/go-nativeclipboard"
 
@@ -31,15 +31,10 @@ func NewKeyBindings(editor *Editor) *KeyBindings {
 }
 
 func (kb *KeyBindings) HandleKey(msg tea.KeyPressMsg) tea.Cmd {
-	// Check if we should start/end a typing group
 	currentTime := time.Now()
 	if kb.typingGroup && currentTime.Sub(kb.lastKeyTime) > constants.TypingGroupTimeout {
-		startIdx := max(kb.editor.undo.Len()-kb.editor.typingGroupCount, 0)
-		kb.editor.undo.GroupUndoEntries(startIdx)
-		kb.typingGroup = false
-		kb.editor.typingGroupCount = 0
+		kb.endTypingGroup()
 	}
-
 	kb.lastKeyTime = currentTime
 
 	// Handle key based on string representation
@@ -143,13 +138,7 @@ func (kb *KeyBindings) handleRunes(msg tea.KeyPressMsg) tea.Cmd {
 	for _, r := range msg.Text {
 		kb.insertRune(r)
 	}
-
-	// Start or continue typing group
-	if !kb.typingGroup {
-		kb.typingGroup = true
-		kb.editor.typingGroupCount = 0
-	}
-	kb.editor.typingGroupCount++
+	kb.beginTypingGroup()
 
 	return nil
 }
@@ -158,16 +147,8 @@ func (kb *KeyBindings) handleInsert(r rune) tea.Cmd {
 	if kb.editor.selection.IsActive() {
 		kb.deleteSelection()
 	}
-
 	kb.insertRune(r)
-
-	// Start or continue typing group
-	if !kb.typingGroup {
-		kb.typingGroup = true
-		kb.editor.typingGroupCount = 0
-	}
-	kb.editor.typingGroupCount++
-
+	kb.beginTypingGroup()
 	return nil
 }
 
@@ -221,12 +202,7 @@ func (kb *KeyBindings) handleBackspace() tea.Cmd {
 			kb.editor.buf.Delete(currentCursor-size, size)
 			kb.editor.nav.SetCursor(currentCursor - size)
 
-			// Invalidate render and syntax cache for affected lines
-			rowAfter, _ := kb.editor.buf.CursorToRowCol(kb.editor.nav.Cursor())
-			kb.editor.afterEdit(rowBefore)
-			if rowAfter != rowBefore {
-				kb.editor.afterEdit(rowAfter)
-			}
+			kb.editor.invalidateEdit(rowBefore, currentCursor)
 		}
 	}
 
@@ -266,16 +242,10 @@ func (kb *KeyBindings) handleDelete() tea.Cmd {
 
 		kb.editor.buf.Delete(currentCursor, size)
 
-		// If we deleted a newline character, invalidate everything
 		if string(deleted) == "\n" {
 			kb.editor.afterMultiLineEdit()
-		}
-
-		// Invalidate render and syntax cache for affected lines
-		rowAfter, _ := kb.editor.buf.CursorToRowCol(kb.editor.nav.Cursor())
-		kb.editor.afterEdit(rowBefore)
-		if rowAfter != rowBefore {
-			kb.editor.afterEdit(rowAfter)
+		} else {
+			kb.editor.invalidateEdit(rowBefore, currentCursor)
 		}
 	}
 
@@ -286,6 +256,7 @@ func (kb *KeyBindings) handleDelete() tea.Cmd {
 // handleDeleteWordBackward deletes the word before the cursor (alt+backspace).
 func (kb *KeyBindings) handleDeleteWordBackward() tea.Cmd {
 	currentCursor := kb.editor.nav.Cursor()
+	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
 	if currentCursor == 0 {
 		return nil
 	}
@@ -330,12 +301,7 @@ func (kb *KeyBindings) handleDeleteWordBackward() tea.Cmd {
 	kb.editor.buf.Delete(target, deleteLen)
 	kb.editor.nav.SetCursor(target)
 
-	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
-	rowAfter, _ := kb.editor.buf.CursorToRowCol(target)
-	kb.editor.afterEdit(rowBefore)
-	if rowAfter != rowBefore {
-		kb.editor.afterEdit(rowAfter)
-	}
+	kb.editor.invalidateEdit(rowBefore, target)
 
 	kb.endTypingGroup()
 	kb.editor.nav.updateDesiredCol()
@@ -345,6 +311,7 @@ func (kb *KeyBindings) handleDeleteWordBackward() tea.Cmd {
 // handleDeleteWordForward deletes the word after the cursor (alt+delete).
 func (kb *KeyBindings) handleDeleteWordForward() tea.Cmd {
 	currentCursor := kb.editor.nav.Cursor()
+	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
 	if currentCursor >= kb.editor.buf.Len() {
 		return nil
 	}
@@ -390,8 +357,7 @@ func (kb *KeyBindings) handleDeleteWordForward() tea.Cmd {
 
 	kb.editor.buf.Delete(currentCursor, deleteLen)
 
-	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
-	kb.editor.afterEdit(rowBefore)
+	kb.editor.invalidateEdit(rowBefore, target)
 
 	kb.endTypingGroup()
 	kb.editor.nav.updateDesiredCol()
@@ -571,22 +537,28 @@ func (kb *KeyBindings) handleRedo() tea.Cmd {
 }
 
 func (kb *KeyBindings) handleCopy() tea.Cmd {
-	// First check if we're inside a code block and copy the entire block
 	if codeBlock := kb.detectCodeBlockAtCursor(); codeBlock != nil {
-		nativeclipboard.Text.Write(codeBlock)
-		return kb.showNotification(constants.CodeBlockCopied)
+		return kb.writeClipboard(codeBlock, constants.CodeBlockCopied)
 	}
-
-	// Otherwise, handle normal selection copy
 	if kb.editor.selection.IsActive() {
-		selected := kb.editor.selection.GetSelectedText(kb.editor.buf)
-		if selected != nil {
-			nativeclipboard.Text.Write(selected)
+		if selected := kb.editor.selection.GetSelectedText(kb.editor.buf); selected != nil {
 			kb.editor.selection.Clear()
-			return kb.showNotification(constants.TextCopied)
+			return kb.writeClipboard(selected, constants.TextCopied)
 		}
 	}
 	return nil
+}
+
+// writeClipboard copies text to the system clipboard, reporting failures so a
+// blocked clipboard does not silently drop data.
+func (kb *KeyBindings) writeClipboard(text []byte, ok constants.NotificationType) tea.Cmd {
+	if len(text) == 0 {
+		return nil
+	}
+	if _, err := nativeclipboard.Text.Write(text); err != nil {
+		return kb.showNotification(constants.ClipboardError)
+	}
+	return kb.showNotification(ok)
 }
 
 func (kb *KeyBindings) handleCut() tea.Cmd {
@@ -609,11 +581,9 @@ func (kb *KeyBindings) handleCut() tea.Cmd {
 			kb.editor.nav.SetCursor(start)
 			kb.editor.selection.Clear()
 
-			nativeclipboard.Text.Write(selected)
-
 			// Invalidate all cache entries since line numbers may have shifted
 			kb.editor.afterMultiLineEdit()
-			return kb.showNotification(constants.CutToClipboard)
+			return kb.writeClipboard(selected, constants.CutToClipboard)
 		}
 	}
 	return nil
@@ -621,8 +591,8 @@ func (kb *KeyBindings) handleCut() tea.Cmd {
 
 func (kb *KeyBindings) handlePaste() tea.Cmd {
 	clip, err := nativeclipboard.Text.Read()
-	if err != nil || clip == nil {
-		return nil
+	if err != nil {
+		return kb.showNotification(constants.ClipboardError)
 	}
 	return kb.pasteContent(clip)
 }
@@ -719,9 +689,8 @@ func (kb *KeyBindings) deleteSelection() int {
 
 func (kb *KeyBindings) insertRune(r rune) {
 	currentCursor := kb.editor.nav.Cursor()
-
-	char := string(r)
-	inserted := []byte(char)
+	inserted := []byte(string(r))
+	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
 
 	kb.recordUndo(UndoEntry{
 		offset:       currentCursor,
@@ -730,17 +699,13 @@ func (kb *KeyBindings) insertRune(r rune) {
 		cursorAfter:  currentCursor + len(inserted),
 	})
 
-	// Get current line before insertion
-	rowBefore, _ := kb.editor.buf.CursorToRowCol(currentCursor)
-
 	kb.editor.buf.Insert(currentCursor, inserted)
 	kb.editor.nav.SetCursor(currentCursor + len(inserted))
 
-	// Invalidate render and syntax cache for affected lines
 	rowAfter, _ := kb.editor.buf.CursorToRowCol(kb.editor.nav.Cursor())
-	kb.editor.afterEdit(rowBefore)
+	kb.editor.invalidateEdit(rowBefore, currentCursor)
 	if rowAfter != rowBefore {
-		kb.editor.afterEdit(rowAfter)
+		kb.editor.invalidateEdit(rowAfter, currentCursor)
 	}
 }
 
@@ -749,19 +714,31 @@ func (kb *KeyBindings) recordUndo(entry UndoEntry) {
 }
 
 func (kb *KeyBindings) endTypingGroup() {
-	if kb.typingGroup {
-		kb.typingGroup = false
+	if !kb.typingGroup {
+		return
+	}
+	kb.typingGroup = false
+	start := max(kb.editor.undo.Len()-kb.editor.typingGroupCount, 0)
+	kb.editor.undo.GroupUndoEntries(start)
+	kb.editor.typingGroupCount = 0
+}
+
+// beginTypingGroup opens a merge window for consecutive single-rune inserts.
+func (kb *KeyBindings) beginTypingGroup() {
+	if !kb.typingGroup {
+		kb.typingGroup = true
 		kb.editor.typingGroupCount = 0
 	}
+	kb.editor.typingGroupCount++
 }
 
 func (kb *KeyBindings) detectCodeBlockAtCursor() []byte {
 	currentRow, _ := kb.editor.buf.CursorToRowCol(kb.editor.nav.Cursor())
-	tracker := newCodeFenceTracker(kb.editor.buf)
-	if !tracker.IsInside(currentRow) && !markdown.IsCodeFence(kb.editor.buf.LineAt(currentRow)) {
+	doc := kb.editor.document()
+	if !doc.InCode(currentRow) && doc.LineKind(currentRow) != markdown.LineCodeFence {
 		return nil
 	}
-	start, end := tracker.CodeBlockBounds(currentRow)
+	start, end := doc.Bounds(currentRow)
 	var lines []string
 	for row := start + 1; row < end; row++ {
 		lines = append(lines, kb.editor.buf.LineAt(row))

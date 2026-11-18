@@ -5,9 +5,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/z-d-g/md-cli/internal/constants"
-	"github.com/z-d-g/md-cli/internal/markdown"
-	"github.com/z-d-g/md-cli/internal/render"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/z-d-g/md-cli/v2/internal/constants"
+	"github.com/z-d-g/md-cli/v2/internal/markdown"
+	"github.com/z-d-g/md-cli/v2/internal/render"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -41,10 +42,13 @@ type Editor struct {
 	// Typing group state
 	typingGroupCount int
 
+	// viewScroll is the first document row drawn by the last View call.
+	viewScroll int
+
 	// Frame state for caching per-frame computations
 	frame struct {
-		tracker *markdown.CodeFenceTracker
-		dirty   bool
+		doc   *markdown.Doc
+		dirty bool
 	}
 }
 
@@ -93,36 +97,36 @@ func (e *Editor) LineAt(n int) string {
 	return e.buf.LineAt(n)
 }
 
-func (e *Editor) Init() tea.Cmd {
-	return nil
-}
-
 func (e *Editor) computeFrameState() {
 	lineCount := e.buf.LineCount()
-	if !e.frame.dirty && e.frame.tracker != nil && len(e.frame.tracker.CodeBlockLines()) == lineCount {
+	if !e.frame.dirty && e.frame.doc != nil && e.frame.doc.Len() == lineCount {
 		return
 	}
-	lines := make([]string, lineCount)
+	var b strings.Builder
+	b.Grow(256)
 	for i := 0; i < lineCount; i++ {
-		lines[i] = e.buf.LineAt(i)
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(e.buf.LineAt(i))
 	}
-	e.frame.tracker = markdown.NewCodeFenceTracker(lines)
+	e.frame.doc = markdown.NewDoc(b.String())
 	e.frame.dirty = false
 }
 
-func (e *Editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update applies one message to the editor and returns the command to run, if
+// any. The editor is mutated in place.
+func (e *Editor) Update(msg tea.Msg) tea.Cmd {
 	if !e.focused {
-		return e, nil
+		return nil
 	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		e.SetSize(msg.Width, msg.Height)
-		return e, nil
 
 	case tea.KeyPressMsg:
-		cmd := e.keyBindings.HandleKey(msg)
-		return e, cmd
+		return e.keyBindings.HandleKey(msg)
 
 	case tea.MouseWheelMsg:
 		if msg.Button == tea.MouseWheelUp {
@@ -134,14 +138,12 @@ func (e *Editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				e.keyBindings.handleDown(false)
 			}
 		}
-		return e, nil
 
 	case tea.PasteMsg:
-		cmd := e.keyBindings.HandlePaste(msg.Content)
-		return e, cmd
+		return e.keyBindings.HandlePaste(msg.Content)
 	}
 
-	return e, nil
+	return nil
 }
 
 // View renders the editor.
@@ -154,6 +156,7 @@ func (e *Editor) View() tea.View {
 
 	var b strings.Builder
 	visibleLines := e.visibleLines()
+	e.viewScroll = e.scroll
 
 	maxLineNum := e.buf.LineCount()
 	lineNumWidth := e.getLineNumWidth() - 1
@@ -172,33 +175,35 @@ func (e *Editor) View() tea.View {
 		isActive := absLine >= activeStart && absLine <= activeEnd
 		isCursorLine := absLine == cursorRow
 
+		var line strings.Builder
 		if isActive {
 			if isBlockRegion {
 				if e.selection.IsActive() {
-					e.renderWithSelection(&b, rawLine, rawLine, absLine, cursorCol, isCursorLine)
+					e.renderWithSelection(&line, rawLine, rawLine, absLine, cursorCol, isCursorLine)
 				} else if isCursorLine {
-					e.renderWithCursor(&b, rawLine, rawLine, cursorCol)
+					e.renderWithCursor(&line, rawLine, rawLine, cursorCol)
 				} else {
-					b.WriteString(rawLine)
+					line.WriteString(rawLine)
 				}
 			} else {
 				if e.selection.IsActive() {
 					styled := e.stylizeSourceLine(rawLine, absLine)
-					e.renderWithSelection(&b, rawLine, styled, absLine, cursorCol, isCursorLine)
+					e.renderWithSelection(&line, rawLine, styled, absLine, cursorCol, isCursorLine)
 				} else {
-					e.renderActiveLine(&b, rawLine, absLine, cursorCol, isCursorLine)
+					e.renderActiveLine(&line, rawLine, absLine, cursorCol, isCursorLine)
 				}
 			}
 		} else {
 			styled := e.getCachedLine(absLine, rawLine)
 			if e.selection.IsActive() {
-				e.renderWithSelection(&b, rawLine, styled, absLine, cursorCol, isCursorLine)
+				e.renderWithSelection(&line, rawLine, styled, absLine, cursorCol, isCursorLine)
 			} else if isCursorLine {
-				e.renderWithCursor(&b, rawLine, styled, cursorCol)
+				e.renderWithCursor(&line, rawLine, styled, cursorCol)
 			} else {
-				b.WriteString(styled)
+				line.WriteString(styled)
 			}
 		}
+		b.WriteString(clipLine(line.String(), e.textWidth()))
 
 		if i < len(visibleLines)-1 {
 			b.WriteByte('\n')
@@ -224,7 +229,7 @@ func (e *Editor) View() tea.View {
 
 // getCachedLine returns the rendered line from cache or re-renders.
 func (e *Editor) getCachedLine(lineNum int, rawLine string) string {
-	isInCodeBlock := e.frame.tracker.IsInside(lineNum)
+	isInCodeBlock := e.frame.doc.InCode(lineNum)
 	tableVersion := e.renderer.TableVersion()
 
 	if entry, exists := e.renderCache[lineNum]; exists {
@@ -233,7 +238,7 @@ func (e *Editor) getCachedLine(lineNum int, rawLine string) string {
 		}
 	}
 
-	rendered := e.renderer.RenderLine(rawLine, isInCodeBlock)
+	rendered := e.renderer.RenderLine(rawLine, lineNum, isInCodeBlock)
 	e.renderCache[lineNum] = cacheEntry{
 		raw:          rawLine,
 		rendered:     rendered,
@@ -251,6 +256,12 @@ func (e *Editor) renderLineNumber(text string) string {
 // getLineNumWidth returns the width of the line number column.
 func (e *Editor) getLineNumWidth() int {
 	return len(fmt.Sprintf("%d", e.buf.LineCount())) + 1
+}
+
+// textWidth returns the number of cells available for line content after the
+// line-number gutter and its trailing space.
+func (e *Editor) textWidth() int {
+	return max(e.width-e.getLineNumWidth(), 1)
 }
 
 // visibleLines returns the lines visible in the viewport.
@@ -281,15 +292,22 @@ func (e *Editor) visibleLines() []string {
 	return lines
 }
 
+// document returns the parsed document for the current buffer contents,
+// computing it on first use so callers never rebuild the AST themselves.
+func (e *Editor) document() *markdown.Doc {
+	e.computeFrameState()
+	return e.frame.doc
+}
+
 // getActiveRegion determines which lines should be shown as raw markdown source.
 func (e *Editor) getActiveRegion() (int, int, bool) {
 	cursorRow, _ := e.buf.CursorToRowCol(e.nav.Cursor())
-	return FindBlockRegion(e.buf, cursorRow, e.frame.tracker)
+	return FindBlockRegion(e.frame.doc, cursorRow)
 }
 
 // stylizeSourceLine applies styling to a line showing raw markdown syntax.
 func (e *Editor) stylizeSourceLine(line string, lineNum int) string {
-	lineType := markdown.ClassifyLine(line, e.frame.tracker.IsInside(lineNum))
+	lineType := e.frame.doc.LineKind(lineNum)
 	if lineType == markdown.LineNormal || lineType == markdown.LineBlockQuote {
 		elements := render.ParseInlineElements(line)
 		return e.renderer.RenderSourceInline(elements, lipgloss.Style{})
@@ -362,22 +380,15 @@ func (e *Editor) renderWithSelection(b *strings.Builder, rawLine, styledLine str
 		lineSelEnd = selectionEndCol
 	}
 
-	cursorDisp := displayOffset(rawLine, cursorCol)
 	selStartDisp := displayOffset(rawLine, lineSelStart)
 	selEndDisp := displayOffset(rawLine, lineSelEnd)
-	writeStyledRunes(b, styledLine, selStartDisp, selEndDisp, cursorDisp, isCursorLine, e.renderCursorChar, e.renderSelectionChar)
+	writeStyledRunes(b, styledLine, selStartDisp, selEndDisp, e.renderSelectionChar)
 }
 
+// renderWithCursor renders a line. The hardware cursor is positioned by the
+// model from CursorScreen, so no block cursor is drawn here.
 func (e *Editor) renderWithCursor(b *strings.Builder, rawLine, styledLine string, cursorCol int) {
-	cursorDisp := displayOffset(rawLine, cursorCol)
-	lineWidth := displayWidth(rawLine)
-	if cursorDisp >= lineWidth {
-		b.WriteString(styledLine)
-		b.WriteString(e.renderCursorChar(" "))
-		return
-	}
-
-	writeStyledRunes(b, styledLine, -1, -1, cursorDisp, true, e.renderCursorChar, e.renderSelectionChar)
+	b.WriteString(styledLine)
 }
 
 func skipEscape(s string, i int) int {
@@ -413,11 +424,12 @@ func skipEscape(s string, i int) int {
 	return i
 }
 
+// displayOffset converts a rune column into a terminal cell offset.
 func displayOffset(line string, runeCol int) int {
 	var n, col int
-	for col < runeCol {
+	for col < runeCol && n < len(line) {
 		r, sz := utf8.DecodeRuneInString(line[n:])
-		if r == utf8.RuneError {
+		if r == utf8.RuneError && sz <= 1 {
 			break
 		}
 		n += sz
@@ -426,63 +438,68 @@ func displayOffset(line string, runeCol int) int {
 	return runewidth.StringWidth(line[:n])
 }
 
-func displayWidth(line string) int {
-	n := 0
-	for i := 0; i < len(line); {
-		r, size := utf8.DecodeRuneInString(line[i:])
-		if r == utf8.RuneError {
-			break
-		}
-		n += runewidth.RuneWidth(r)
-		i += size
-	}
-	return n
-}
+// displayWidth returns the terminal cell width of a styled string.
+func displayWidth(line string) int { return ansi.StringWidth(line) }
 
-func writeStyledRunes(b *strings.Builder, styledLine string, selStart, selEnd, cursorDisp int, isCursorLine bool, renderCursor, renderSelection func(string) string) {
-	var displayCol int
+// writeStyledRunes applies selection styling to the styled line. The cursor is
+// drawn by the terminal, so only selection needs overlaying.
+func writeStyledRunes(b *strings.Builder, styledLine string, selStart, selEnd int, renderSelection func(string) string) {
+	col := 0
 	for i := 0; i < len(styledLine); {
 		if styledLine[i] == '\x1b' {
-			next := skipEscape(styledLine, i)
-			b.WriteString(styledLine[i:next])
-			i = next
+			seq, width, n, _ := ansi.DecodeSequence(styledLine[i:], 0, nil)
+			if n == 0 {
+				b.WriteString(styledLine[i:])
+				return
+			}
+			if width == 0 {
+				b.WriteString(seq)
+				i += n
+				continue
+			}
+			b.WriteString(overlay(styledLine[i:i+width], col, col+width, selStart, selEnd, renderSelection))
+			col += width
+			i += width
 			continue
 		}
 
 		r, size := utf8.DecodeRuneInString(styledLine[i:])
-		if r == utf8.RuneError {
+		if r == utf8.RuneError && size <= 1 {
+			b.WriteString(styledLine[i : i+1])
+			col++
 			i++
 			continue
 		}
-		w := runewidth.RuneWidth(r)
-
-		isCursorChar := isCursorLine && displayCol == cursorDisp
-		isSelected := selStart >= 0 && selEnd >= 0 && displayCol >= selStart && displayCol < selEnd
-
-		switch {
-		case isCursorChar:
-			b.WriteString(renderCursor(styledLine[i : i+size]))
-		case isSelected:
-			b.WriteString(renderSelection(styledLine[i : i+size]))
-		default:
-			b.WriteString(styledLine[i : i+size])
-		}
-
-		displayCol += w
+		w := max(runewidth.RuneWidth(r), 1)
+		b.WriteString(overlay(styledLine[i:i+size], col, col+w, selStart, selEnd, renderSelection))
+		col += w
 		i += size
 	}
 
-	if isCursorLine && displayCol <= cursorDisp {
-		b.WriteString(renderCursor(" "))
-	}
 }
 
-// renderCursorChar renders a character with cursor styling via the renderer.
-func (e *Editor) renderCursorChar(ch string) string {
-	if e.renderer != nil {
-		return e.renderer.RenderCursorChar(ch)
+// overlay applies selection styling to one grapheme occupying cells [start,end).
+func overlay(text string, start, end, selStart, selEnd int, renderSelection func(string) string) string {
+	if selStart >= 0 && selEnd > selStart && start < selEnd && end > selStart {
+		return renderSelection(text)
 	}
-	return ch
+	return text
+}
+
+// CursorScreen returns the 0-based (row, col) of the caret within the rendered
+// view, including the line-number gutter and the top bar offset.
+func (e *Editor) CursorScreen() (int, int) {
+	row, col := e.buf.CursorToRowCol(e.nav.Cursor())
+	return row - e.viewScroll, e.getLineNumWidth() + displayOffset(e.LineAt(row), col)
+}
+
+// clipLine truncates a styled line to width cells without cutting escape
+// sequences, so long lines never wrap and desync the viewport.
+func clipLine(styled string, width int) string {
+	if width <= 0 || ansi.StringWidth(styled) <= width {
+		return styled
+	}
+	return ansi.Truncate(styled, width, "")
 }
 
 // renderSelectionChar renders a character with selection styling via the renderer.
@@ -505,7 +522,7 @@ func (e *Editor) SetValue(content string) {
 	e.syntaxCache = make(map[int][]SyntaxSpan)
 	e.undo.Clear()
 	e.selection.Clear()
-	e.frame.tracker = nil
+	e.frame.doc = nil
 	e.markDirty()
 }
 
@@ -521,6 +538,35 @@ func (e *Editor) afterEdit(affectedRow int) {
 	e.markDirty()
 	delete(e.renderCache, affectedRow)
 	delete(e.syntaxCache, affectedRow)
+}
+
+// invalidateEdit drops cache entries for every line touched by an edit that
+// changed bytes between start and end (or inserted at start). Byte offsets may
+// be from before or after the edit; the affected line range is clamped to the
+// current buffer so stale line numbers cannot leak.
+func (e *Editor) invalidateEdit(start, end int) {
+	e.markDirty()
+	lo, hi := start, end
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	lineLo, _ := e.buf.CursorToRowCol(lo)
+	lineHi, _ := e.buf.CursorToRowCol(min(hi, e.buf.Len()))
+	for row := lineLo; row <= lineHi; row++ {
+		delete(e.renderCache, row)
+		delete(e.syntaxCache, row)
+	}
+	// The edit may have shifted every later line's bytes: drop anything past it.
+	for row := range e.renderCache {
+		if row > lineHi {
+			delete(e.renderCache, row)
+		}
+	}
+	for row := range e.syntaxCache {
+		if row > lineHi {
+			delete(e.syntaxCache, row)
+		}
+	}
 }
 
 func (e *Editor) afterMultiLineEdit() {
@@ -547,9 +593,10 @@ func (e *Editor) Cursor() (int, int) {
 	return e.buf.CursorToRowCol(e.nav.Cursor())
 }
 
+// SetCursor places the caret at (row, col). Out-of-range positions are clamped
+// to the buffer, matching every other navigation entry point.
 func (e *Editor) SetCursor(row, col int) {
-	cursorPos := e.buf.RowColToByteOffset(row, col)
-	e.nav.SetCursor(cursorPos)
+	e.nav.SetCursor(e.buf.RowColToByteOffset(row, col))
 }
 
 func (e *Editor) IsDirty() bool {
