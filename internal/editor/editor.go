@@ -308,6 +308,11 @@ func (e *Editor) getActiveRegion() (int, int, bool) {
 // stylizeSourceLine applies styling to a line showing raw markdown syntax.
 func (e *Editor) stylizeSourceLine(line string, lineNum int) string {
 	lineType := e.frame.doc.LineKind(lineNum)
+	// A thematic break has no inline children, so goldmark yields no elements;
+	// return the raw marker instead of an empty line.
+	if lineType == markdown.LineNormal && markdown.IsHorizontalRule(line) {
+		return line
+	}
 	if lineType == markdown.LineNormal || lineType == markdown.LineBlockQuote {
 		elements := render.ParseInlineElements(line)
 		return e.renderer.RenderSourceInline(elements, lipgloss.Style{})

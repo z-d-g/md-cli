@@ -70,9 +70,18 @@
       <text id="quote" x="76" y="296"><tspan fill="#8B5CF6">│ </tspan><tspan fill="#C9BCE0">a blockquote line</tspan></text>
 
       <g id="table" fill="#E6DFF7">
-        <text id="table-head" x="76" y="328"><tspan fill="#6D5AA0">│ </tspan><tspan font-weight="700" fill="#C4B5FD">Name   </tspan><tspan fill="#6D5AA0">│ </tspan><tspan font-weight="700" fill="#C4B5FD">Qty </tspan><tspan fill="#6D5AA0">│</tspan></text>
-        <text id="table-rule" x="76" y="344" fill="#6D5AA0">├────────┼─────┤</text>
-        <text id="table-row" x="76" y="360"><tspan fill="#6D5AA0">│ </tspan>Widget<tspan fill="#6D5AA0"> │ </tspan>3   <tspan fill="#6D5AA0">│</tspan></text>
+        <!-- Borders are drawn as lines: box-drawing glyphs fall back to fonts
+             with different advance widths and break column alignment. -->
+        <g id="table-rules" stroke="#6D5AA0" stroke-width="1">
+          <line x1="76" y1="317" x2="76" y2="364"/>
+          <line x1="146" y1="317" x2="146" y2="364"/>
+          <line x1="193" y1="317" x2="193" y2="364"/>
+          <line x1="76" y1="336" x2="193" y2="336"/>
+        </g>
+        <text id="table-head" x="92" y="328" font-weight="700" fill="#C4B5FD">Name</text>
+        <text id="table-head-qty" x="162" y="328" font-weight="700" fill="#C4B5FD">Qty</text>
+        <text id="table-row" x="92" y="360">Widget</text>
+        <text id="table-row-qty" x="162" y="360">3</text>
       </g>
 
       <line id="code-fence-open" x1="76" y1="388" x2="744" y2="388" stroke="#8B7BAE" stroke-width="2" stroke-dasharray="4 4"/>

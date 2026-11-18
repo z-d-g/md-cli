@@ -153,3 +153,14 @@ func TestCursorBarRendering(t *testing.T) {
 		}
 	})
 }
+
+func TestCursorOnHorizontalRuleShowsSource(t *testing.T) {
+	editor := NewEditor("alpha\n\n---\n\nbeta\n", testRenderer())
+	editor.SetSize(40, 10)
+	editor.SetCursor(2, 0)
+
+	view := editor.View()
+	if !strings.Contains(view.Content, "---") {
+		t.Errorf("cursor on horizontal rule hid the source marker: %q", view.Content)
+	}
+}
